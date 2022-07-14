@@ -3,10 +3,16 @@ pub(crate) type Word = u16;
 pub(crate) type Sbyte = i8;
 pub(crate) type Cycles = u32;
 
+/// Create a `Word` from two `Byte`s with the first argument
+/// as the most significant and the second argument as the
+/// least significant
 pub(crate) fn compose_word(msb: Byte, lsb: Byte) -> Word {
     Word::from(msb) << 8 | Word::from(lsb)
 }
 
+/// Extract the `Byte`s from a `Word` and return a tuple with
+/// the most siginificant `Byte` as the first item and the
+/// least significant `Byte` as the second
 pub(crate) fn decompose_word(value: Word) -> (Byte, Byte) {
     let lsb = value as Byte;
     let msb = (value >> 8) as Byte;
