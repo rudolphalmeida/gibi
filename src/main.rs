@@ -1,3 +1,7 @@
+use clap::Parser;
+use gibi::options::Options;
+
 fn main() {
-    println!("Hello, World!");
+    let options = Options::parse();
+    println!("ROM filename: {:?}", options.rom_file);
 }
