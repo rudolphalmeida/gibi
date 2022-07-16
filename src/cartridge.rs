@@ -81,12 +81,20 @@ impl Mbc for NoMbc {
 }
 
 impl Memory for NoMbc {
-    fn read(&self, _address: Word) -> Byte {
-        todo!()
+    fn read(&self, address: Word) -> Byte {
+        match address {
+            0x0000..=0x7FFF => self.rom[address as usize],
+            _ => panic!("Read from {:#6X} for {} MBC", address, self.name()),
+        }
     }
 
-    fn write(&mut self, _address: Word, _data: Byte) {
-        todo!()
+    fn write(&mut self, address: Word, data: Byte) {
+        panic!(
+            "Write to {:#6X} with {:#4X} for {} MBC",
+            address,
+            data,
+            self.name()
+        );
     }
 }
 
