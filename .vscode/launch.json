@@ -7,6 +7,22 @@
         {
             "type": "lldb",
             "request": "launch",
+            "name": "Debug executable 'gibi' with Tetris.gb",
+            "program": "target/debug/gibi",
+            "args": [
+                "roms/Tetris.gb"
+            ],
+            "cwd": "${workspaceFolder}",
+            "env": {
+                "RUST_LOG": "debug"
+            },
+            "sourceLanguages": [
+                "rust"
+            ]
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
             "name": "Debug unit tests in library 'gibi'",
             "cargo": {
                 "args": [
@@ -18,24 +34,6 @@
                 "filter": {
                     "name": "gibi",
                     "kind": "lib"
-                }
-            },
-            "args": [],
-            "cwd": "${workspaceFolder}"
-        },
-        {
-            "type": "lldb",
-            "request": "launch",
-            "name": "Debug executable 'gibi'",
-            "cargo": {
-                "args": [
-                    "build",
-                    "--bin=gibi",
-                    "--package=gibi"
-                ],
-                "filter": {
-                    "name": "gibi",
-                    "kind": "bin"
                 }
             },
             "args": [],
