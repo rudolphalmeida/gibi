@@ -23,6 +23,8 @@ impl Mmu {
         let wram = Vec::with_capacity(WRAM_BANK_SIZE * 2); // 8KB
         let hram = Vec::with_capacity(HRAM_SIZE);
 
+        log::debug!("Initialized MMU for DMG");
+
         Self { cart, wram, hram }
     }
 

@@ -14,6 +14,7 @@ pub(crate) struct Cpu {
 impl Cpu {
     pub fn new(mmu: Rc<RefCell<Mmu>>) -> Self {
         let regs = Default::default();
+        log::debug!("Initialized CPU for DMG");
         Cpu { mmu, regs }
     }
 
