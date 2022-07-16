@@ -13,6 +13,6 @@ impl Gameboy {
     }
 
     pub fn run(&mut self) {
-        println!("{}", self.mmu.cart.name())
+        log::info!("Loaded a cartridge with MBC: {}", self.mmu.cart.name());
     }
 }
