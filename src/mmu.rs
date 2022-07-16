@@ -1,6 +1,5 @@
 use crate::{
     cartridge::{load_from_file, Cartridge},
-    memory::Memory,
     options::Options,
     utils::{Byte, Word},
 };
@@ -26,10 +25,17 @@ impl Mmu {
 
         Self { cart, wram, hram }
     }
-}
 
-impl Memory for Mmu {
-    fn read(&self, address: Word) -> Byte {
+    fn tick(&mut self) {
+        // Do nothing for now
+    }
+
+    // Read and Write for Mmu. The `Memory` trait is not implemented for the Mmu
+    // because `read` here needs to take a mutable reference to `self` due to
+    // using `tick` inside it. We want the other components to keep up with the
+    // CPU during each memory access
+    fn read(&mut self, address: Word) -> Byte {
+        self.tick();
         match address {
             0x0000..=0x7FFF => return self.cart.read(address),
             0x8000..=0x9FFF => log::info!("Read from PPU VRAM {:#6X}", address),
@@ -47,6 +53,7 @@ impl Memory for Mmu {
     }
 
     fn write(&mut self, address: Word, data: Byte) {
+        self.tick();
         match address {
             0x0000..=0x7FFF => self.cart.write(address, data),
             0x8000..=0x9FFF => log::info!("Write to PPU VRAM {:#6X} with {:#4X}", address, data),
