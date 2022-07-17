@@ -21,6 +21,12 @@ impl Cpu {
     pub fn execute_opcode(&mut self) -> Cycles {
         todo!()
     }
+
+    fn fetch(&mut self) -> Byte {
+        let byte = self.mmu.borrow_mut().read(self.regs.pc);
+        self.regs.pc += 1;
+        byte
+    }
 }
 
 pub enum FlagRegisterMask {

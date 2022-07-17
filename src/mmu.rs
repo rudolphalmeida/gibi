@@ -36,7 +36,7 @@ impl Mmu {
     // because `read` here needs to take a mutable reference to `self` due to
     // using `tick` inside it. We want the other components to keep up with the
     // CPU during each memory access
-    fn read(&mut self, address: Word) -> Byte {
+    pub fn read(&mut self, address: Word) -> Byte {
         self.tick();
         match address {
             0x0000..=0x7FFF => return self.cart.read(address),
@@ -54,7 +54,7 @@ impl Mmu {
         0xFF
     }
 
-    fn write(&mut self, address: Word, data: Byte) {
+    pub fn write(&mut self, address: Word, data: Byte) {
         self.tick();
         match address {
             0x0000..=0x7FFF => self.cart.write(address, data),
