@@ -5,7 +5,8 @@ use once_cell::sync::Lazy;
 pub(crate) type Byte = u8;
 pub(crate) type Word = u16;
 pub(crate) type Sbyte = i8;
-pub(crate) type Cycles = u32;
+/// Machine-Cycles (m)
+pub(crate) type Cycles = u64;
 
 pub(crate) const HEX_LOOKUP: Lazy<HashMap<Byte, String>> = Lazy::new(|| {
     let mut lookup: HashMap<Byte, String> = HashMap::with_capacity(512);

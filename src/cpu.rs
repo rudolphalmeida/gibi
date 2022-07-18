@@ -32,9 +32,12 @@ impl Cpu {
 
         log::debug!("Opcode name: {}", opcode_metadata.mnemonic);
 
-        match opcode_byte {
+        let branch_taken_cycles = match opcode_byte {
+            0x01 | 0x11 | 0x21 | 0x31 => self.ld_r16_u16(opcode_byte),
             _ => panic!("Unimplemented or illegal opcode {:#04X}", opcode_byte),
-        }
+        };
+
+        opcode_metadata.cycles[0] + branch_taken_cycles
     }
 
     fn print_debug_log(&self) {
@@ -51,6 +54,18 @@ impl Cpu {
         let byte = self.mmu.borrow_mut().read(self.regs.pc);
         self.regs.pc += 1;
         byte
+    }
+
+    // Opcode Implementations
+    fn ld_r16_u16(&mut self, opcode: Byte) -> Cycles {
+        let lower = self.fetch();
+        let upper = self.fetch();
+
+        let b54 = (opcode & 0x30) >> 4;
+        let value = compose_word(upper, lower);
+        WordRegister::for_group1(b54, self).set(value);
+
+        0x00
     }
 }
 
@@ -151,5 +166,53 @@ impl Registers {
 
     pub fn reset_flag(&mut self, flag: FlagRegisterMask) {
         self.f = self.f & !(flag as Byte);
+    }
+}
+
+// Register decoding for opcodes
+enum WordRegister<'a> {
+    Pair {
+        lower: &'a mut Byte,
+        upper: &'a mut Byte,
+    },
+    Single(&'a mut Word),
+}
+
+impl<'a> WordRegister<'a> {
+    pub fn for_group1(bits: Byte, cpu: &'a mut Cpu) -> Self {
+        match bits {
+            0 => WordRegister::Pair {
+                lower: &mut cpu.regs.b,
+                upper: &mut cpu.regs.c,
+            },
+            1 => WordRegister::Pair {
+                lower: &mut cpu.regs.d,
+                upper: &mut cpu.regs.e,
+            },
+            2 => WordRegister::Pair {
+                lower: &mut cpu.regs.h,
+                upper: &mut cpu.regs.l,
+            },
+            3 => WordRegister::Single(&mut cpu.regs.sp),
+            _ => panic!("Invalid decode bits for Group 1 R16 registers {:b}", bits),
+        }
+    }
+
+    pub fn get(&self) -> Word {
+        match self {
+            WordRegister::Pair { lower, upper } => compose_word(**upper, **lower),
+            WordRegister::Single(reg) => **reg,
+        }
+    }
+
+    pub fn set(&mut self, value: u16) {
+        match self {
+            WordRegister::Pair { lower, upper } => {
+                let (msb, lsb) = decompose_word(value);
+                **lower = lsb;
+                **upper = msb;
+            }
+            WordRegister::Single(reg) => **reg = value,
+        }
     }
 }
