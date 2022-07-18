@@ -15,7 +15,7 @@ const RAM_SIZE_ADDRESS: Word = 0x149;
 const RAM_BANK_SIZE: u32 = 1024 * 8; // 8KiB
 
 // TODO: Add option to execute the bootrom or skip it by default
-const BOOT_ROM: &'static [Byte; 256] = include_bytes!("../roms/dmg_boot.bin");
+pub const BOOT_ROM: &'static [Byte; 256] = include_bytes!("../roms/dmg_boot.bin");
 
 pub(crate) fn load_from_file(options: &Options) -> io::Result<Box<dyn Cartridge>> {
     let rom = std::fs::read(options.rom_file.as_str())?;

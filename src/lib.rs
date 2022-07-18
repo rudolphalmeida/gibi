@@ -6,6 +6,7 @@ pub mod gameboy;
 mod interrupts;
 mod memory;
 mod mmu;
+mod opcodes;
 pub mod options;
 mod timer;
 mod utils;

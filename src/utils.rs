@@ -1,7 +1,22 @@
+use std::collections::HashMap;
+
+use once_cell::sync::Lazy;
+
 pub(crate) type Byte = u8;
 pub(crate) type Word = u16;
 pub(crate) type Sbyte = i8;
 pub(crate) type Cycles = u32;
+
+pub(crate) const HEX_LOOKUP: Lazy<HashMap<Byte, String>> = Lazy::new(|| {
+    let mut lookup: HashMap<Byte, String> = HashMap::with_capacity(512);
+
+    for i in 0..=0xFF {
+        let repr = format!("{:#04X}", i);
+        lookup.insert(i, repr);
+    }
+
+    lookup
+});
 
 /// Create a `Word` from two `Byte`s with the first argument
 /// as the most significant and the second argument as the

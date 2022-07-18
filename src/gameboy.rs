@@ -23,7 +23,7 @@ impl Gameboy {
         );
 
         loop {
-            self.cpu.execute_opcode();
+            self.cpu.execute();
         }
     }
 }

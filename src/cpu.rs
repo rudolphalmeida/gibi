@@ -3,7 +3,8 @@ use std::{cell::RefCell, rc::Rc};
 
 use crate::{
     mmu::Mmu,
-    utils::{compose_word, decompose_word, Byte, Cycles, Word},
+    opcodes::OPCODE_METADATA,
+    utils::{compose_word, decompose_word, Byte, Cycles, Word, HEX_LOOKUP},
 };
 
 pub(crate) struct Cpu {
@@ -18,8 +19,32 @@ impl Cpu {
         Cpu { mmu, regs }
     }
 
-    pub fn execute_opcode(&mut self) -> Cycles {
-        todo!()
+    pub fn execute(&mut self) -> Cycles {
+        // TODO: Check for interrupts and halts here
+        self.execute_opcode()
+    }
+
+    fn execute_opcode(&mut self) -> Cycles {
+        self.print_debug_log();
+
+        let opcode_byte = self.fetch();
+        let opcode_metadata = &OPCODE_METADATA.unprefixed[&*HEX_LOOKUP[&opcode_byte]];
+
+        log::debug!("Opcode name: {}", opcode_metadata.mnemonic);
+
+        match opcode_byte {
+            _ => panic!("Unimplemented or illegal opcode {:#04X}", opcode_byte),
+        }
+    }
+
+    fn print_debug_log(&self) {
+        let pc = self.regs.pc;
+        let byte_0 = self.mmu.borrow_mut().read(pc + 0);
+        let byte_1 = self.mmu.borrow_mut().read(pc + 1);
+        let byte_2 = self.mmu.borrow_mut().read(pc + 2);
+        let byte_3 = self.mmu.borrow_mut().read(pc + 3);
+        log::debug!("A: {:02X} F: {:02X} B: {:02X} C: {:02X} D: {:02X} E: {:02X} H: {:02X} L: {:02X} SP: {:04X} PC: 00:{:04X} ({:02X} {:02X} {:02X} {:02X})", 
+        self.regs.a, self.regs.f, self.regs.b, self.regs.c, self.regs.d, self.regs.e, self.regs.h, self.regs.l, self.regs.sp, self.regs.pc, byte_0, byte_1, byte_2, byte_3);
     }
 
     fn fetch(&mut self) -> Byte {
@@ -36,6 +61,7 @@ pub enum FlagRegisterMask {
     Carry = (1 << 4),
 }
 
+#[derive(Default)]
 pub(crate) struct Registers {
     a: Byte,
     f: Byte,
@@ -48,25 +74,6 @@ pub(crate) struct Registers {
 
     sp: Word,
     pc: Word,
-}
-
-impl Default for Registers {
-    fn default() -> Self {
-        Self {
-            a: 0x01,
-            // TODO: The carry and half-carry flags are reset if the header checksum was 0x00 and
-            //       both are set if it was not. Emulate this
-            f: 0xB0,
-            b: 0x00,
-            c: 0x13,
-            d: 0x00,
-            e: 0xD8,
-            h: 0x01,
-            l: 0x4D,
-            sp: 0xFFFE,
-            pc: 0x0100,
-        }
-    }
 }
 
 macro_rules! register_pair {
