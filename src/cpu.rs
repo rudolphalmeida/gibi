@@ -19,6 +19,12 @@ impl Cpu {
         Cpu { mmu, regs }
     }
 
+    fn fetch(&mut self) -> Byte {
+        let byte = self.mmu.borrow_mut().read(self.regs.pc);
+        self.regs.pc += 1;
+        byte
+    }
+
     pub fn execute(&mut self) -> Cycles {
         // TODO: Check for interrupts and halts here
         self.execute_opcode()
@@ -34,6 +40,7 @@ impl Cpu {
 
         let branch_taken_cycles = match opcode_byte {
             0x01 | 0x11 | 0x21 | 0x31 => self.ld_r16_u16(opcode_byte),
+            0x80..=0xBF => self.alu_a_r8(opcode_byte),
             _ => panic!("Unimplemented or illegal opcode {:#04X}", opcode_byte),
         };
 
@@ -50,12 +57,6 @@ impl Cpu {
         self.regs.a, self.regs.f, self.regs.b, self.regs.c, self.regs.d, self.regs.e, self.regs.h, self.regs.l, self.regs.sp, self.regs.pc, byte_0, byte_1, byte_2, byte_3);
     }
 
-    fn fetch(&mut self) -> Byte {
-        let byte = self.mmu.borrow_mut().read(self.regs.pc);
-        self.regs.pc += 1;
-        byte
-    }
-
     // Opcode Implementations
     fn ld_r16_u16(&mut self, opcode: Byte) -> Cycles {
         let lower = self.fetch();
@@ -66,6 +67,65 @@ impl Cpu {
         WordRegister::for_group1(b54, self).set(value);
 
         0x00
+    }
+
+    fn alu_a_r8(&mut self, opcode: Byte) -> Cycles {
+        let b543 = (opcode & 0x38) >> 3;
+        let b321 = opcode & 0x07;
+
+        let operand = ByteRegister::for_r8(b321, self).get();
+
+        match b543 {
+            0 => self.add_a(operand),
+            1 => self.adc_a(operand),
+            2 => self.sub_a(operand),
+            3 => self.sbc_a(operand),
+            4 => self.and_a(operand),
+            5 => self.xor_a(operand),
+            6 => self.or_a(operand),
+            7 => self.cp_a(operand),
+            _ => panic!("Invalid bits {:b} for ALU A, r8 operation", b543),
+        };
+
+        0x00
+    }
+
+    fn add_a(&mut self, _operand: Byte) {
+        todo!()
+    }
+
+    fn adc_a(&mut self, _operand: Byte) {
+        todo!()
+    }
+
+    fn sub_a(&mut self, _operand: Byte) {
+        todo!()
+    }
+
+    fn sbc_a(&mut self, _operand: Byte) {
+        todo!()
+    }
+
+    fn and_a(&mut self, _operand: Byte) {
+        todo!()
+    }
+
+    fn xor_a(&mut self, operand: Byte) {
+        self.regs.a ^= operand;
+
+        self.regs
+            .update_flag(FlagRegisterMask::Zero, self.regs.a == 0x00);
+        self.regs.update_flag(FlagRegisterMask::Carry, false);
+        self.regs.update_flag(FlagRegisterMask::HalfCarry, false);
+        self.regs.update_flag(FlagRegisterMask::Subtraction, false);
+    }
+
+    fn or_a(&mut self, _operand: Byte) {
+        todo!()
+    }
+
+    fn cp_a(&mut self, _operand: Byte) {
+        todo!()
     }
 }
 
@@ -160,12 +220,12 @@ impl Registers {
         (self.f & (flag as Byte)) != 0
     }
 
-    pub fn set_flag(&mut self, flag: FlagRegisterMask) {
-        self.f = self.f | (flag as Byte);
-    }
-
-    pub fn reset_flag(&mut self, flag: FlagRegisterMask) {
-        self.f = self.f & !(flag as Byte);
+    pub fn update_flag(&mut self, flag: FlagRegisterMask, value: bool) {
+        if value {
+            self.f = self.f | (flag as Byte);
+        } else {
+            self.f = self.f & !(flag as Byte);
+        }
     }
 }
 
@@ -182,16 +242,16 @@ impl<'a> WordRegister<'a> {
     pub fn for_group1(bits: Byte, cpu: &'a mut Cpu) -> Self {
         match bits {
             0 => WordRegister::Pair {
-                lower: &mut cpu.regs.b,
-                upper: &mut cpu.regs.c,
+                upper: &mut cpu.regs.b,
+                lower: &mut cpu.regs.c,
             },
             1 => WordRegister::Pair {
-                lower: &mut cpu.regs.d,
-                upper: &mut cpu.regs.e,
+                upper: &mut cpu.regs.d,
+                lower: &mut cpu.regs.e,
             },
             2 => WordRegister::Pair {
-                lower: &mut cpu.regs.h,
-                upper: &mut cpu.regs.l,
+                upper: &mut cpu.regs.h,
+                lower: &mut cpu.regs.l,
             },
             3 => WordRegister::Single(&mut cpu.regs.sp),
             _ => panic!("Invalid decode bits for Group 1 R16 registers {:b}", bits),
@@ -213,6 +273,41 @@ impl<'a> WordRegister<'a> {
                 **upper = msb;
             }
             WordRegister::Single(reg) => **reg = value,
+        }
+    }
+}
+
+enum ByteRegister<'a> {
+    Register(&'a mut Byte),
+    MemoryReference(Word, Rc<RefCell<Mmu>>),
+}
+
+impl<'a> ByteRegister<'a> {
+    pub fn for_r8(bits: Byte, cpu: &'a mut Cpu) -> Self {
+        match bits {
+            0 => ByteRegister::Register(&mut cpu.regs.b),
+            1 => ByteRegister::Register(&mut cpu.regs.c),
+            2 => ByteRegister::Register(&mut cpu.regs.d),
+            3 => ByteRegister::Register(&mut cpu.regs.e),
+            4 => ByteRegister::Register(&mut cpu.regs.h),
+            5 => ByteRegister::Register(&mut cpu.regs.l),
+            6 => ByteRegister::MemoryReference(cpu.regs.get_hl(), Rc::clone(&cpu.mmu)),
+            7 => ByteRegister::Register(&mut cpu.regs.a),
+            _ => panic!("Invalid decode bits for R8 register {:b}", bits),
+        }
+    }
+
+    pub fn get(&self) -> Byte {
+        match self {
+            ByteRegister::Register(ptr) => **ptr,
+            ByteRegister::MemoryReference(address, mmu) => mmu.borrow_mut().read(*address),
+        }
+    }
+
+    pub fn set(&mut self, value: Byte) {
+        match self {
+            ByteRegister::Register(ptr) => **ptr = value,
+            ByteRegister::MemoryReference(address, mmu) => mmu.borrow_mut().write(*address, value),
         }
     }
 }
