@@ -4,7 +4,7 @@ use std::{cell::RefCell, rc::Rc};
 use crate::{
     mmu::Mmu,
     opcodes::OPCODE_METADATA,
-    utils::{compose_word, decompose_word, Byte, Cycles, Word, HEX_LOOKUP},
+    utils::{compose_word, decompose_word, Byte, Word, HEX_LOOKUP},
 };
 
 pub(crate) struct Cpu {
@@ -44,6 +44,8 @@ impl Cpu {
             0x02 | 0x12 | 0x22 | 0x32 => self.ld_r16_a(opcode_byte),
             0xCB => self.cb_prefixed_opcodes(opcode_byte),
             0x20 | 0x30 | 0x28 | 0x38 => self.jr_cc_i8(opcode_byte),
+            0x06 | 0x16 | 0x26 | 0x36 | 0x0E | 0x1E | 0x2E | 0x3E => self.ld_r8_u8(opcode_byte),
+            0xE2 => self.ld_ff00_c_a(opcode_byte),
             _ => panic!("Unimplemented or illegal opcode {:#04X}", opcode_byte),
         };
     }
@@ -55,7 +57,7 @@ impl Cpu {
         let byte_2 = self.mmu.borrow().raw_read(pc + 2);
         let byte_3 = self.mmu.borrow().raw_read(pc + 3);
         println!("A: {:02X} F: {:02X} B: {:02X} C: {:02X} D: {:02X} E: {:02X} H: {:02X} L: {:02X} SP: {:04X} PC: 00:{:04X} ({:02X} {:02X} {:02X} {:02X})", 
-        self.regs.a, self.regs.f, self.regs.b, self.regs.c, self.regs.d, self.regs.e, self.regs.h, self.regs.l, self.regs.sp, self.regs.pc, byte_0, byte_1, byte_2, byte_3);
+        self.regs.a, Byte::from(self.regs.f), self.regs.b, self.regs.c, self.regs.d, self.regs.e, self.regs.h, self.regs.l, self.regs.sp, self.regs.pc, byte_0, byte_1, byte_2, byte_3);
     }
 
     // Opcode Implementations
@@ -110,11 +112,10 @@ impl Cpu {
     fn xor_a(&mut self, operand: Byte) {
         self.regs.a ^= operand;
 
-        self.regs
-            .update_flag(FlagRegisterMask::Zero, self.regs.a == 0x00);
-        self.regs.update_flag(FlagRegisterMask::Carry, false);
-        self.regs.update_flag(FlagRegisterMask::HalfCarry, false);
-        self.regs.update_flag(FlagRegisterMask::Subtraction, false);
+        self.regs.f.zero = self.regs.a == 0x00;
+        self.regs.f.carry = false;
+        self.regs.f.half_carry = false;
+        self.regs.f.negative = false;
     }
 
     fn or_a(&mut self, _operand: Byte) {
@@ -140,10 +141,10 @@ impl Cpu {
 
     fn check_condition(&self, bits: Byte) -> bool {
         match bits {
-            0 => !self.regs.is_set_flag(FlagRegisterMask::Zero),
-            1 => self.regs.is_set_flag(FlagRegisterMask::Zero),
-            2 => !self.regs.is_set_flag(FlagRegisterMask::Carry),
-            3 => self.regs.is_set_flag(FlagRegisterMask::Carry),
+            0 => !self.regs.f.zero,
+            1 => self.regs.f.zero,
+            2 => !self.regs.f.carry,
+            3 => self.regs.f.carry,
             _ => panic!("Invalid decode bits for condition check {:b}", bits),
         }
     }
@@ -157,6 +158,12 @@ impl Cpu {
             // TODO: This might be an opcode preload or dummy read. Fix it
             self.mmu.borrow().read(self.regs.pc); // Dummy tick for this cycle
         }
+    }
+
+    fn ld_r8_u8(&mut self, opcode: Byte) {
+        let b543 = (opcode & 0x38) >> 3;
+        let operand = self.fetch();
+        ByteRegister::for_r8(b543, self).set(operand);
     }
 
     fn cb_prefixed_opcodes(&mut self, _: Byte) {
@@ -176,24 +183,73 @@ impl Cpu {
         let b321 = opcode & 0x07;
 
         let operand = ByteRegister::for_r8(b321, self).get();
-        self.regs
-            .update_flag(FlagRegisterMask::Zero, operand & (1 << b543) == 0);
-        self.regs.update_flag(FlagRegisterMask::Subtraction, false);
-        self.regs.update_flag(FlagRegisterMask::HalfCarry, true);
+        self.regs.f.zero = operand & (1 << b543) == 0;
+        self.regs.f.negative = false;
+        self.regs.f.half_carry = true;
+    }
+
+    fn ld_ff00_c_a(&self, _: Byte) {
+        self.mmu
+            .borrow_mut()
+            .write(0xFF00 + Word::from(self.regs.c), self.regs.a);
     }
 }
 
-pub enum FlagRegisterMask {
+enum FlagRegisterMask {
     Zero = (1 << 7),
-    Subtraction = (1 << 6),
+    Negative = (1 << 6),
     HalfCarry = (1 << 5),
     Carry = (1 << 4),
+}
+
+#[derive(Debug, Default, Clone, Copy)]
+pub(crate) struct FlagRegister {
+    zero: bool,
+    negative: bool,
+    half_carry: bool,
+    carry: bool,
+}
+
+impl From<u8> for FlagRegister {
+    fn from(value: u8) -> Self {
+        let zero = (value & FlagRegisterMask::Zero as u8) != 0;
+        let negative = (value & FlagRegisterMask::Negative as u8) != 0;
+        let half_carry = (value & FlagRegisterMask::HalfCarry as u8) != 0;
+        let carry = (value & FlagRegisterMask::Carry as u8) != 0;
+
+        FlagRegister {
+            zero,
+            negative,
+            half_carry,
+            carry,
+        }
+    }
+}
+
+impl From<FlagRegister> for u8 {
+    fn from(register: FlagRegister) -> Self {
+        let mut value = 0x00;
+        if register.zero {
+            value |= FlagRegisterMask::Zero as u8;
+        }
+        if register.negative {
+            value |= FlagRegisterMask::Negative as u8;
+        }
+        if register.half_carry {
+            value |= FlagRegisterMask::HalfCarry as u8;
+        }
+        if register.carry {
+            value |= FlagRegisterMask::Carry as u8;
+        }
+
+        value
+    }
 }
 
 #[derive(Default)]
 pub(crate) struct Registers {
     a: Byte,
-    f: Byte,
+    f: FlagRegister,
     b: Byte,
     c: Byte,
     d: Byte,
@@ -208,31 +264,15 @@ pub(crate) struct Registers {
 macro_rules! register_pair {
     ($upper: ident, $lower: ident) => {
         paste! {
-            pub fn [<get_ $upper>](&self) -> Byte {
-                self.$upper
-            }
-
-            pub fn [<set_ $upper>](&mut self, value: Byte) {
-                self.$upper = value;
-            }
-
-            pub fn [<get_ $lower>](&self) -> Byte {
-                self.$lower
-            }
-
-            pub fn [<set_ $lower>](&mut self, value: Byte) {
-                self.$lower = value;
-            }
-
             pub fn [<get_ $upper $lower >](&self) -> Word {
-                compose_word(self.[<get_ $upper>](), self.[<get_ $lower>]())
+                compose_word(self.$upper, self.$lower.into())
             }
 
             pub fn [<set_ $upper $lower>](&mut self, value: Word) {
                 let (msb, lsb) = decompose_word(value);
 
-                self.[<set_ $upper>](msb);
-                self.[<set_ $lower>](lsb);
+                self.$upper = msb;
+                self.$lower = lsb.into();
             }
         }
     };
@@ -242,45 +282,7 @@ impl Registers {
     register_pair!(b, c);
     register_pair!(d, e);
     register_pair!(h, l);
-
-    pub fn get_a(&self) -> Byte {
-        self.a
-    }
-
-    pub fn set_a(&mut self, value: Byte) {
-        self.a = value;
-    }
-
-    pub fn get_f(&self) -> Byte {
-        self.f & 0xF0
-    }
-
-    pub fn set_f(&mut self, value: Byte) {
-        self.f = value & 0xF0;
-    }
-
-    pub fn get_af(&self) -> Word {
-        compose_word(self.get_a(), self.get_f())
-    }
-
-    pub fn set_af(&mut self, value: Word) {
-        let (msb, lsb) = decompose_word(value);
-
-        self.set_a(msb);
-        self.set_f(lsb);
-    }
-
-    pub fn is_set_flag(&self, flag: FlagRegisterMask) -> bool {
-        (self.f & (flag as Byte)) != 0
-    }
-
-    pub fn update_flag(&mut self, flag: FlagRegisterMask, value: bool) {
-        if value {
-            self.f = self.f | (flag as Byte);
-        } else {
-            self.f = self.f & !(flag as Byte);
-        }
-    }
+    register_pair!(a, f);
 }
 
 // Register decoding for opcodes
@@ -290,6 +292,11 @@ enum WordRegister<'a> {
         upper: &'a mut Byte,
     },
     Single(&'a mut Word),
+    /// For the AF register pair
+    AccumAndFlag {
+        a: &'a mut Byte,
+        f: &'a mut FlagRegister,
+    },
 }
 
 impl<'a> WordRegister<'a> {
@@ -334,6 +341,7 @@ impl<'a> WordRegister<'a> {
         match self {
             WordRegister::Pair { lower, upper } => compose_word(**upper, **lower),
             WordRegister::Single(reg) => **reg,
+            WordRegister::AccumAndFlag { a, f } => compose_word(**a, Byte::from(**f)),
         }
     }
 
@@ -345,6 +353,11 @@ impl<'a> WordRegister<'a> {
                 **upper = msb;
             }
             WordRegister::Single(reg) => **reg = value,
+            WordRegister::AccumAndFlag { a, f } => {
+                let (msb, lsb) = decompose_word(value);
+                **a = msb;
+                **f = lsb.into();
+            }
         }
     }
 }
