@@ -1,5 +1,6 @@
 use crate::{
     cartridge::{load_from_file, Cartridge, BOOT_ROM},
+    memory::Memory,
     options::Options,
     utils::{Byte, Word},
 };
@@ -20,25 +21,16 @@ pub(crate) struct Mmu {
 impl Mmu {
     pub fn new(options: &Options) -> Self {
         let cart = load_from_file(options).unwrap();
-        let wram = Vec::with_capacity(WRAM_BANK_SIZE * 2); // 8KB
-        let hram = Vec::with_capacity(HRAM_SIZE);
+        let wram = Vec::from([0x00; WRAM_BANK_SIZE * 2]); // 8KB
+        let hram = Vec::from([0x00; HRAM_SIZE]);
 
         log::debug!("Initialized MMU for DMG");
 
         Self { cart, wram, hram }
     }
 
-    fn tick(&self) {
+    pub fn tick(&self) {
         // Do nothing for now
-    }
-
-    /// Read and Write for Mmu. The `Memory` trait is not implemented for the Mmu
-    /// because `read` here needs to take a mutable reference to `self` due to
-    /// using `tick` inside it. We want the other components to keep up with the
-    /// CPU during each memory access
-    pub fn read(&self, address: Word) -> Byte {
-        self.tick();
-        self.raw_read(address)
     }
 
     /// Raw Read: Read the contents of a memory location without ticking all the
@@ -60,11 +52,6 @@ impl Mmu {
         0xFF
     }
 
-    pub fn write(&mut self, address: Word, data: Byte) {
-        self.tick();
-        self.raw_write(address, data);
-    }
-
     fn raw_write(&mut self, address: Word, data: Byte) {
         match address {
             0x0000..=0x0100 => log::error!("Write to boot ROM {:#06X} with {:#04X}", address, data),
@@ -83,5 +70,21 @@ impl Mmu {
             0xFF80..=0xFFFE => self.hram[address as usize - 0xFF80] = data,
             0xFFFF => log::info!("Write to IE register {:#06X} with {:#04X}", address, data),
         }
+    }
+}
+
+impl Memory for Mmu {
+    /// Read and Write for Mmu. The `Memory` trait is not implemented for the Mmu
+    /// because `read` here needs to take a mutable reference to `self` due to
+    /// using `tick` inside it. We want the other components to keep up with the
+    /// CPU during each memory access
+    fn read(&self, address: Word) -> Byte {
+        self.tick();
+        self.raw_read(address)
+    }
+
+    fn write(&mut self, address: Word, data: Byte) {
+        self.tick();
+        self.raw_write(address, data);
     }
 }

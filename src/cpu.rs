@@ -2,6 +2,7 @@ use paste::paste;
 use std::{cell::RefCell, rc::Rc};
 
 use crate::{
+    memory::Memory,
     mmu::Mmu,
     opcodes::OPCODE_METADATA,
     utils::{compose_word, decompose_word, Byte, Word, HEX_LOOKUP},
@@ -45,8 +46,17 @@ impl Cpu {
             0xCB => self.cb_prefixed_opcodes(opcode_byte),
             0x20 | 0x30 | 0x28 | 0x38 => self.jr_cc_i8(opcode_byte),
             0x06 | 0x16 | 0x26 | 0x36 | 0x0E | 0x1E | 0x2E | 0x3E => self.ld_r8_u8(opcode_byte),
+            0x04 | 0x14 | 0x24 | 0x34 | 0x0C | 0x1C | 0x2C | 0x3C => self.inc_r8(opcode_byte),
             0xE2 => self.ld_ff00_c_a(opcode_byte),
-            _ => panic!("Unimplemented or illegal opcode {:#04X}", opcode_byte),
+            0x76 => self.halt(opcode_byte),
+            0x40..=0x7F => self.ld_r8_r8(opcode_byte),
+            0xE0 => self.ld_ff00_u8_a(opcode_byte),
+            0x0A | 0x1A | 0x2A | 0x3A => self.ld_a_r16(opcode_byte),
+            0xCD => self.call_u16(opcode_byte),
+            _ => panic!(
+                "Unimplemented or illegal opcode {:#04X} at PC: {:#06X}",
+                opcode_byte, self.regs.pc
+            ),
         };
     }
 
@@ -139,6 +149,19 @@ impl Cpu {
         }
     }
 
+    fn ld_a_r16(&mut self, opcode: Byte) {
+        let b54 = (opcode & 0x30) >> 4;
+        let address = WordRegister::for_group2(b54, self).get();
+        self.regs.a = self.mmu.borrow().read(address);
+
+        // Increment or decrement HL if the opcode requires it
+        if b54 == 2 {
+            self.regs.set_hl(self.regs.get_hl().wrapping_add(1));
+        } else if b54 == 3 {
+            self.regs.set_hl(self.regs.get_hl().wrapping_sub(1));
+        }
+    }
+
     fn check_condition(&self, bits: Byte) -> bool {
         match bits {
             0 => !self.regs.f.zero,
@@ -156,7 +179,7 @@ impl Cpu {
         if self.check_condition(b43) {
             self.regs.pc = self.regs.pc.wrapping_add(offset);
             // TODO: This might be an opcode preload or dummy read. Fix it
-            self.mmu.borrow().read(self.regs.pc); // Dummy tick for this cycle
+            self.mmu.borrow().tick();
         }
     }
 
@@ -188,10 +211,57 @@ impl Cpu {
         self.regs.f.half_carry = true;
     }
 
-    fn ld_ff00_c_a(&self, _: Byte) {
+    fn ld_ff00_c_a(&mut self, _: Byte) {
         self.mmu
             .borrow_mut()
             .write(0xFF00 + Word::from(self.regs.c), self.regs.a);
+    }
+
+    fn inc_r8(&mut self, opcode: u8) {
+        let b543 = (opcode & 0x38) >> 3;
+        let operand = ByteRegister::for_r8(b543, self).get();
+
+        let result = operand.wrapping_add(1);
+        self.regs.f.zero = result == 0x00;
+        self.regs.f.negative = false;
+        self.regs.f.half_carry = ((operand & 0x0F) + 0x1) > 0x0F;
+
+        ByteRegister::for_r8(b543, self).set(result);
+    }
+
+    fn halt(&mut self, _: Byte) {
+        todo!()
+    }
+
+    fn ld_r8_r8(&mut self, opcode: u8) {
+        let b543 = (opcode & 0x38) >> 3; // Destination
+        let b210 = opcode & 0x07; // Source
+
+        let source = ByteRegister::for_r8(b210, self).get();
+        ByteRegister::for_r8(b543, self).set(source);
+    }
+
+    fn ld_ff00_u8_a(&mut self, _: Byte) {
+        let offset = Word::from(self.fetch());
+        self.mmu.borrow_mut().write(0xFF00 + offset, self.regs.a);
+    }
+
+    fn call_u16(&mut self, _: u8) {
+        let lsb = self.fetch();
+        let msb = self.fetch();
+        let jump_address = compose_word(msb, lsb);
+
+        // Pre-decrement SP
+        self.regs.sp = self.regs.sp.wrapping_sub(1);
+        self.mmu.borrow().tick();
+
+        // Write return location to stack
+        let (pc_upper, pc_lower) = decompose_word(self.regs.pc);
+        self.mmu.borrow_mut().write(self.regs.sp, pc_upper);
+        self.regs.sp = self.regs.sp.wrapping_sub(1);
+        self.mmu.borrow_mut().write(self.regs.sp, pc_lower);
+
+        self.regs.pc = jump_address;
     }
 }
 
