@@ -4,8 +4,7 @@ use std::{cell::RefCell, rc::Rc};
 use crate::{
     memory::Memory,
     mmu::Mmu,
-    opcodes::OPCODE_METADATA,
-    utils::{compose_word, decompose_word, Byte, Word, HEX_LOOKUP},
+    utils::{compose_word, decompose_word, Byte, Word},
 };
 
 pub(crate) struct Cpu {
@@ -35,24 +34,34 @@ impl Cpu {
         self.print_debug_log();
 
         let opcode_byte = self.fetch();
-        let opcode_metadata = &OPCODE_METADATA.unprefixed[&*HEX_LOOKUP[&opcode_byte]];
-
-        log::debug!("Opcode name: {}", opcode_metadata.mnemonic);
+        // let opcode_metadata = &OPCODE_METADATA.unprefixed[&*HEX_LOOKUP[&opcode_byte]];
+        // log::debug!("Opcode name: {}", opcode_metadata.mnemonic);
 
         match opcode_byte {
             0x01 | 0x11 | 0x21 | 0x31 => self.ld_r16_u16(opcode_byte),
             0x80..=0xBF => self.alu_a_r8(opcode_byte),
+            0xC6 | 0xD6 | 0xE6 | 0xF6 | 0xCE | 0xDE | 0xEE | 0xFE => self.alu_a_u8(opcode_byte),
             0x02 | 0x12 | 0x22 | 0x32 => self.ld_r16_a(opcode_byte),
             0xCB => self.cb_prefixed_opcodes(opcode_byte),
             0x20 | 0x30 | 0x28 | 0x38 => self.jr_cc_i8(opcode_byte),
+            0x18 => self.jr_i8(opcode_byte),
             0x06 | 0x16 | 0x26 | 0x36 | 0x0E | 0x1E | 0x2E | 0x3E => self.ld_r8_u8(opcode_byte),
             0x04 | 0x14 | 0x24 | 0x34 | 0x0C | 0x1C | 0x2C | 0x3C => self.inc_r8(opcode_byte),
+            0x05 | 0x15 | 0x25 | 0x35 | 0x0D | 0x1D | 0x2D | 0x3D => self.dec_r8(opcode_byte),
             0xE2 => self.ld_ff00_c_a(opcode_byte),
             0x76 => self.halt(opcode_byte),
             0x40..=0x7F => self.ld_r8_r8(opcode_byte),
             0xE0 => self.ld_ff00_u8_a(opcode_byte),
+            0xF0 => self.ld_a_ff00_u8(opcode_byte),
             0x0A | 0x1A | 0x2A | 0x3A => self.ld_a_r16(opcode_byte),
             0xCD => self.call_u16(opcode_byte),
+            0xC5 | 0xD5 | 0xE5 | 0xF5 => self.push_r16(opcode_byte),
+            0xC1 | 0xD1 | 0xE1 | 0xF1 => self.pop_r16(opcode_byte),
+            0x07 | 0x17 | 0x27 | 0x37 | 0x0F | 0x1F | 0x2F | 0x3F => self.flag_ops(opcode_byte),
+            0x03 | 0x13 | 0x23 | 0x33 => self.inc_r16(opcode_byte),
+            0xC9 => self.ret(opcode_byte),
+            0xEA => self.ld_u16_a(opcode_byte),
+            0xFA => self.ld_a_u16(opcode_byte),
             _ => panic!(
                 "Unimplemented or illegal opcode {:#04X} at PC: {:#06X}",
                 opcode_byte, self.regs.pc
@@ -99,16 +108,47 @@ impl Cpu {
         };
     }
 
-    fn add_a(&mut self, _operand: Byte) {
-        todo!()
+    fn alu_a_u8(&mut self, opcode: Byte) {
+        let b543 = (opcode & 0x38) >> 3;
+        let operand = self.fetch();
+
+        match b543 {
+            0 => self.add_a(operand),
+            1 => self.adc_a(operand),
+            2 => self.sub_a(operand),
+            3 => self.sbc_a(operand),
+            4 => self.and_a(operand),
+            5 => self.xor_a(operand),
+            6 => self.or_a(operand),
+            7 => self.cp_a(operand),
+            _ => panic!("Invalid bits {:b} for ALU A, u8 operation", b543),
+        };
+    }
+
+    fn add_a(&mut self, operand: Byte) {
+        let (result, carry) = self.regs.a.overflowing_add(operand);
+
+        self.regs.f.zero = result == 0x00;
+        self.regs.f.negative = false;
+        self.regs.f.half_carry = (self.regs.a & 0x0F) + (operand & 0x0F) > 0x0F;
+        self.regs.f.carry = carry;
+
+        self.regs.a = result;
     }
 
     fn adc_a(&mut self, _operand: Byte) {
         todo!()
     }
 
-    fn sub_a(&mut self, _operand: Byte) {
-        todo!()
+    fn sub_a(&mut self, operand: Byte) {
+        let (result, borrow) = self.regs.a.overflowing_sub(operand);
+
+        self.regs.f.zero = result == 0x00;
+        self.regs.f.negative = true;
+        self.regs.f.half_carry = (self.regs.a & 0x0F) < (operand & 0x0F);
+        self.regs.f.carry = borrow;
+
+        self.regs.a = result;
     }
 
     fn sbc_a(&mut self, _operand: Byte) {
@@ -132,8 +172,13 @@ impl Cpu {
         todo!()
     }
 
-    fn cp_a(&mut self, _operand: Byte) {
-        todo!()
+    fn cp_a(&mut self, operand: Byte) {
+        let result = self.regs.a - operand;
+
+        self.regs.f.zero = result == 0x00;
+        self.regs.f.negative = true;
+        self.regs.f.half_carry = (self.regs.a & 0x0F) < (operand & 0x0F);
+        self.regs.f.carry = self.regs.a < operand;
     }
 
     fn ld_r16_a(&mut self, opcode: Byte) {
@@ -183,6 +228,12 @@ impl Cpu {
         }
     }
 
+    fn jr_i8(&mut self, _: Byte) {
+        let offset = i16::from(self.fetch() as i8) as u16;
+        self.regs.pc = self.regs.pc.wrapping_add(offset);
+        self.mmu.borrow().tick();
+    }
+
     fn ld_r8_u8(&mut self, opcode: Byte) {
         let b543 = (opcode & 0x38) >> 3;
         let operand = self.fetch();
@@ -193,6 +244,7 @@ impl Cpu {
         let prefixed_opcode = self.fetch();
 
         match prefixed_opcode {
+            0x00..=0x3F => self.rotate_and_swap_r8(prefixed_opcode),
             0x40..=0x7F => self.bit_n_r8(prefixed_opcode),
             _ => panic!(
                 "Unimplemented or illegal prefixed opcode {:#04X}",
@@ -229,6 +281,18 @@ impl Cpu {
         ByteRegister::for_r8(b543, self).set(result);
     }
 
+    fn dec_r8(&mut self, opcode: u8) {
+        let b543 = (opcode & 0x38) >> 3;
+        let operand = ByteRegister::for_r8(b543, self).get();
+
+        let result = operand.wrapping_sub(1);
+        self.regs.f.zero = result == 0x00;
+        self.regs.f.negative = true;
+        self.regs.f.half_carry = operand & 0x0F == 0x00;
+
+        ByteRegister::for_r8(b543, self).set(result);
+    }
+
     fn halt(&mut self, _: Byte) {
         todo!()
     }
@@ -244,6 +308,11 @@ impl Cpu {
     fn ld_ff00_u8_a(&mut self, _: Byte) {
         let offset = Word::from(self.fetch());
         self.mmu.borrow_mut().write(0xFF00 + offset, self.regs.a);
+    }
+
+    fn ld_a_ff00_u8(&mut self, _: Byte) {
+        let offset = Word::from(self.fetch());
+        self.regs.a = self.mmu.borrow().read(0xFF00 + offset);
     }
 
     fn call_u16(&mut self, _: u8) {
@@ -262,6 +331,175 @@ impl Cpu {
         self.mmu.borrow_mut().write(self.regs.sp, pc_lower);
 
         self.regs.pc = jump_address;
+    }
+
+    fn push_r16(&mut self, opcode: Byte) {
+        let b54 = (opcode & 0x30) >> 4;
+        let register_value = WordRegister::for_group3(b54, self).get();
+        let (upper, lower) = decompose_word(register_value);
+
+        // Pre-decrement of SP takes a cycle
+        self.regs.sp = self.regs.sp.wrapping_sub(1);
+        self.mmu.borrow().tick();
+
+        self.mmu.borrow_mut().write(self.regs.sp, upper);
+        self.regs.sp = self.regs.sp.wrapping_sub(1);
+        self.mmu.borrow_mut().write(self.regs.sp, lower);
+    }
+
+    fn pop_r16(&mut self, opcode: Byte) {
+        let b54 = (opcode & 0x30) >> 4;
+
+        let lower = self.mmu.borrow().read(self.regs.sp);
+        self.regs.sp = self.regs.sp.wrapping_add(1);
+        let upper = self.mmu.borrow().read(self.regs.sp);
+        self.regs.sp = self.regs.sp.wrapping_add(1);
+
+        WordRegister::for_group3(b54, self).set(compose_word(upper, lower));
+    }
+
+    fn rotate_and_swap_r8(&mut self, opcode: Byte) {
+        let b543 = (opcode & 0x38) >> 3;
+        let b321 = opcode & 0x07;
+
+        let operand = ByteRegister::for_r8(b321, self).get();
+        let result = match b543 {
+            0 => self.rlc(operand),
+            1 => self.rrc(operand),
+            2 => self.rl(operand),
+            3 => self.rr(operand),
+            4 => self.sla(operand),
+            5 => self.sra(operand),
+            6 => self.swap(operand),
+            7 => self.srl(operand),
+            _ => panic!("Invalid bits {:b} for SWAP/ROTATE/SHIFT r8 operation", b543),
+        };
+
+        ByteRegister::for_r8(b321, self).set(result);
+    }
+
+    fn rlc(&self, _operand: u8) -> u8 {
+        todo!()
+    }
+
+    fn rrc(&self, _operand: u8) -> u8 {
+        todo!()
+    }
+
+    fn rl(&mut self, mut operand: Byte) -> Byte {
+        let carry = if self.regs.f.carry { 1 } else { 0 };
+        self.regs.f.carry = (operand & 0x80) != 0;
+        operand <<= 1;
+        operand |= carry;
+
+        self.regs.f.zero = operand == 0x00;
+        self.regs.f.negative = false;
+        self.regs.f.half_carry = false;
+
+        operand
+    }
+
+    fn rr(&self, _operand: u8) -> u8 {
+        todo!()
+    }
+
+    fn sla(&self, _operand: u8) -> u8 {
+        todo!()
+    }
+
+    fn sra(&self, _operand: u8) -> u8 {
+        todo!()
+    }
+
+    fn swap(&self, _operand: u8) -> u8 {
+        todo!()
+    }
+
+    fn srl(&self, _operand: u8) -> u8 {
+        todo!()
+    }
+
+    fn flag_ops(&mut self, opcode: Byte) {
+        let b543 = (opcode & 0x38) >> 3;
+
+        match b543 {
+            0 => self.regs.a = self.rlca(),
+            1 => self.regs.a = self.rrca(),
+            2 => self.regs.a = self.rla(),
+            3 => self.regs.a = self.rra(),
+            4 => self.regs.a = self.daa(),
+            5 => self.cpl(),
+            6 => self.scf(),
+            7 => self.ccf(),
+            _ => panic!("Invalid bits {:b} for FLAG operations", b543),
+        }
+    }
+
+    fn rlca(&self) -> u8 {
+        todo!()
+    }
+
+    fn rrca(&self) -> u8 {
+        todo!()
+    }
+
+    fn rla(&mut self) -> Byte {
+        let result = self.rl(self.regs.a);
+        self.regs.f.zero = false; // RLA unsets zero flag always
+        result
+    }
+
+    fn rra(&self) -> u8 {
+        todo!()
+    }
+
+    fn daa(&self) -> u8 {
+        todo!()
+    }
+
+    fn cpl(&self) {
+        todo!()
+    }
+
+    fn scf(&self) {
+        todo!()
+    }
+
+    fn ccf(&self) {
+        todo!()
+    }
+
+    fn inc_r16(&mut self, opcode: Byte) {
+        let b54 = (opcode & 0x30) >> 4;
+        WordRegister::for_group1(b54, self).inc();
+    }
+
+    fn ret(&mut self, _: Byte) {
+        let lower = self.mmu.borrow().read(self.regs.sp);
+        self.regs.sp = self.regs.sp.wrapping_add(1);
+
+        let upper = self.mmu.borrow().read(self.regs.sp);
+        self.regs.sp = self.regs.sp.wrapping_add(1);
+
+        self.regs.pc = compose_word(upper, lower);
+        // Final m-cycle
+        self.mmu.borrow().tick();
+    }
+
+    fn ld_u16_a(&mut self, _: u8) {
+        let lower = self.fetch();
+        let upper = self.fetch();
+
+        let address = compose_word(upper, lower);
+        self.mmu.borrow_mut().write(address, self.regs.a);
+    }
+
+    fn ld_a_u16(&mut self, _: Byte) {
+        let lower = self.fetch();
+        let upper = self.fetch();
+
+        let address = compose_word(upper, lower);
+        self.regs.a = self.mmu.borrow().read(address);
     }
 }
 
@@ -407,6 +645,28 @@ impl<'a> WordRegister<'a> {
         }
     }
 
+    pub fn for_group3(bits: Byte, cpu: &'a mut Cpu) -> Self {
+        match bits {
+            0 => WordRegister::Pair {
+                upper: &mut cpu.regs.b,
+                lower: &mut cpu.regs.c,
+            },
+            1 => WordRegister::Pair {
+                upper: &mut cpu.regs.d,
+                lower: &mut cpu.regs.e,
+            },
+            2 => WordRegister::Pair {
+                upper: &mut cpu.regs.h,
+                lower: &mut cpu.regs.l,
+            },
+            3 => WordRegister::AccumAndFlag {
+                a: &mut cpu.regs.a,
+                f: &mut cpu.regs.f,
+            },
+            _ => panic!("Invalid decode bits for Group 3 R16 registers {:b}", bits),
+        }
+    }
+
     pub fn get(&self) -> Word {
         match self {
             WordRegister::Pair { lower, upper } => compose_word(**upper, **lower),
@@ -428,6 +688,23 @@ impl<'a> WordRegister<'a> {
                 **a = msb;
                 **f = lsb.into();
             }
+        }
+    }
+
+    fn inc(&mut self) {
+        match self {
+            WordRegister::Pair { lower, upper } => {
+                let (inc_lower, carry) = lower.overflowing_add(1);
+                **lower = inc_lower;
+
+                if carry {
+                    **upper = upper.wrapping_add(1);
+                }
+            }
+            WordRegister::Single(reg) => {
+                **reg = reg.wrapping_add(1);
+            }
+            WordRegister::AccumAndFlag { .. } => panic!("INC not required for AF register"),
         }
     }
 }

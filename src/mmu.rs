@@ -37,14 +37,16 @@ impl Mmu {
     /// components
     pub fn raw_read(&self, address: u16) -> Byte {
         match address {
-            0x0000..=0x0100 => return BOOT_ROM[address as usize],
-            0x0101..=0x7FFF => return self.cart.read(address),
+            0x0000..=0x00FF => return BOOT_ROM[address as usize],
+            0x0100..=0x7FFF => return self.cart.read(address),
             0x8000..=0x9FFF => log::info!("Read from PPU VRAM {:#06X}", address),
             0xA000..=0xBFFF => return self.cart.read(address),
             0xC000..=0xDFFF => return self.wram[address as usize - 0xC000],
             0xE000..=0xFDFF => return self.wram[address as usize - 0xE000],
             0xFE00..=0xFE9F => log::info!("Read from PPU OAM {:#06X}", address),
             0xFEA0..=0xFEFF => log::error!("Read from unused area {:#06X}", address),
+            // TODO: Temporary stub for debugging using log files
+            0xFF44 => return 0x90,
             0xFF00..=0xFF7F => log::info!("Read from IO register {:#06X}", address),
             0xFF80..=0xFFFE => return self.hram[address as usize - 0xFF80],
             0xFFFF => log::info!("Read from IE register {:#06X}", address),
