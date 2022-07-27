@@ -63,7 +63,8 @@ impl Cpu {
             0xFA => self.ld_a_u16(opcode_byte),
             _ => panic!(
                 "Unimplemented or illegal opcode {:#04X} at PC: {:#06X}",
-                opcode_byte, self.regs.pc
+                opcode_byte,
+                self.regs.pc - 1
             ),
         };
     }

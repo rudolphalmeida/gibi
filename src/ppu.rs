@@ -50,6 +50,7 @@ pub(crate) struct Ppu {
     vram: [Byte; VRAM_SIZE],
     oam: [Byte; OAM_SIZE],
     lcdc: Lcdc,
+    stat: LcdStat,
 }
 
 impl Ppu {
@@ -57,8 +58,14 @@ impl Ppu {
         let vram = [0xFF; VRAM_SIZE];
         let oam = [0xFF; OAM_SIZE];
         let lcdc = Default::default();
+        let stat = Default::default();
 
-        Ppu { vram, oam, lcdc }
+        Ppu {
+            vram,
+            oam,
+            lcdc,
+            stat,
+        }
     }
 
     pub fn tick(&mut self) {}
@@ -70,6 +77,7 @@ impl Memory for Ppu {
             VRAM_START..=VRAM_END => self.vram[(address - VRAM_START) as usize],
             OAM_START..=OAM_END => self.oam[(address - OAM_START) as usize],
             LCDC_ADDRESS => self.lcdc.0,
+            STAT_ADDRESS => self.stat.0,
             LY_ADDRESS => 0x90,
             _ => 0x90,
         }
@@ -80,6 +88,8 @@ impl Memory for Ppu {
             VRAM_START..=VRAM_END => self.vram[(address - VRAM_START) as usize] = data,
             OAM_START..=OAM_END => self.oam[(address - OAM_START) as usize] = data,
             LCDC_ADDRESS => self.lcdc.0 = data,
+            // Ignore bit 7 as it is not used and don't set status on write
+            STAT_ADDRESS => self.stat.0 = data & 0x7F & !LCD_STAT_MASK,
             _ => {}
         }
     }
@@ -147,5 +157,59 @@ impl Lcdc {
 
     pub fn bg_and_window_enabled(&self) -> bool {
         self.0 & LcdcFlags::BgAndWindowEnabled as Byte != 0x00
+    }
+}
+
+// LCD STAT Implementation
+pub(crate) enum LcdStatSource {
+    LycLyEqual = (1 << 6),
+    Mode2Oam = (1 << 5),
+    Mode1Vblank = (1 << 4),
+    Mode0Hblank = (1 << 3),
+}
+
+enum LcdStatus {
+    Hblank = 0,
+    Vblank = 1,
+    OamSearch = 2,
+    Rendering = 3,
+}
+
+const LYC_LY_EQUAL: Byte = 1 << 2;
+const LCD_STAT_MASK: Byte = 0x03; // Bits 1,0
+
+#[derive(Debug, Default, Copy, Clone)]
+struct LcdStat(Byte);
+
+impl LcdStat {
+    fn mode(&self) -> LcdStatus {
+        match self.0 & LCD_STAT_MASK {
+            0 => LcdStatus::Hblank,
+            1 => LcdStatus::Vblank,
+            2 => LcdStatus::OamSearch,
+            3 => LcdStatus::Rendering,
+            _ => panic!("Impossible status for LCD mode"),
+        }
+    }
+
+    fn set_mode(&mut self, mode: LcdStatus) {
+        self.0 = (self.0 & !LCD_STAT_MASK) | (mode as Byte);
+        // TODO: Raise interrupt for LCD STAT after calling this method
+    }
+
+    fn is_stat_interrupt_source_enabled(&self, source: LcdStatSource) -> bool {
+        self.0 & source as Byte != 0
+    }
+
+    fn lyc_ly_status(&self) -> bool {
+        self.0 & LYC_LY_EQUAL != 0
+    }
+
+    fn update_lyc_state(&mut self, set: bool) {
+        if set {
+            self.0 |= LYC_LY_EQUAL;
+        } else {
+            self.0 &= !LYC_LY_EQUAL;
+        }
     }
 }
