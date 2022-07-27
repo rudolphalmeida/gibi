@@ -88,8 +88,8 @@ impl Memory for Ppu {
             VRAM_START..=VRAM_END => self.vram[(address - VRAM_START) as usize] = data,
             OAM_START..=OAM_END => self.oam[(address - OAM_START) as usize] = data,
             LCDC_ADDRESS => self.lcdc.0 = data,
-            // Ignore bit 7 as it is not used and don't set status on write
-            STAT_ADDRESS => self.stat.0 = data & 0x7F & !LCD_STAT_MASK,
+            // Ignore bit 7 as it is not used and don't set status or lyc=ly on write
+            STAT_ADDRESS => self.stat.0 = data & !LCD_STAT_MASK & !LYC_LY_EQUAL & 0x7F,
             _ => {}
         }
     }
