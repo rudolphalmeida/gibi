@@ -1,6 +1,7 @@
 use std::{cell::RefCell, rc::Rc};
 
-use crate::{cpu::Cpu, mmu::Mmu, options::Options};
+use crate::apu::Apu;
+use crate::{cpu::Cpu, mmu::Mmu, options::Options, ppu::Ppu};
 
 pub struct Gameboy {
     mmu: Rc<RefCell<Mmu>>,
@@ -9,7 +10,9 @@ pub struct Gameboy {
 
 impl Gameboy {
     pub fn new(options: &Options) -> Self {
-        let mmu = Rc::new(RefCell::new(Mmu::new(options)));
+        let ppu = Rc::new(RefCell::new(Ppu::new()));
+        let apu = Rc::new(RefCell::new(Apu::new()));
+        let mmu = Rc::new(RefCell::new(Mmu::new(options, ppu, apu)));
         let cpu = Cpu::new(Rc::clone(&mmu));
 
         log::debug!("Initialized GameBoy with DMG components");

@@ -10,12 +10,20 @@ pub(crate) trait Cartridge: Memory + Mbc {}
 
 const CARTRIDGE_TYPE_ADDRESS: Word = 0x147;
 const ROM_SIZE_ADDRESS: Word = 0x148;
-const ROM_BANK_SIZE: u32 = 1024 * 16; // 16KiB
+const ROM_BANK_SIZE: u32 = 1024 * 16;
+// 16KiB
 const RAM_SIZE_ADDRESS: Word = 0x149;
 const RAM_BANK_SIZE: u32 = 1024 * 8; // 8KiB
 
-// TODO: Add option to execute the bootrom or skip it by default
+pub const BOOT_ROM_START: Word = 0x0000;
+pub const BOOT_ROM_END: Word = 0x00FF;
 pub const BOOT_ROM: &'static [Byte; 256] = include_bytes!("../roms/dmg_boot.bin");
+
+pub const CART_ROM_START: Word = 0x0000;
+pub const CART_ROM_END: Word = 0x7FFF;
+
+pub const CART_RAM_START: Word = 0xA000;
+pub const CART_RAM_END: Word = 0xBFFF;
 
 pub(crate) fn load_from_file(options: &Options) -> io::Result<Box<dyn Cartridge>> {
     let rom = std::fs::read(options.rom_file.as_str())?;

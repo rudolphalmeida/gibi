@@ -1,5 +1,6 @@
-use paste::paste;
 use std::{cell::RefCell, rc::Rc};
+
+use paste::paste;
 
 use crate::{
     memory::Memory,
@@ -34,8 +35,6 @@ impl Cpu {
         self.print_debug_log();
 
         let opcode_byte = self.fetch();
-        // let opcode_metadata = &OPCODE_METADATA.unprefixed[&*HEX_LOOKUP[&opcode_byte]];
-        // log::debug!("Opcode name: {}", opcode_metadata.mnemonic);
 
         match opcode_byte {
             0x01 | 0x11 | 0x21 | 0x31 => self.ld_r16_u16(opcode_byte),

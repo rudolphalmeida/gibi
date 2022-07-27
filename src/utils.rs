@@ -1,5 +1,3 @@
-use std::collections::HashMap;
-
 use once_cell::sync::Lazy;
 
 pub(crate) type Byte = u8;
@@ -8,12 +6,12 @@ pub(crate) type Sbyte = i8;
 /// Machine-Cycles (m)
 pub(crate) type Cycles = u64;
 
-pub(crate) const HEX_LOOKUP: Lazy<HashMap<Byte, String>> = Lazy::new(|| {
-    let mut lookup: HashMap<Byte, String> = HashMap::with_capacity(512);
+pub(crate) const HEX_LOOKUP: Lazy<Vec<String>> = Lazy::new(|| {
+    let mut lookup: Vec<String> = Vec::with_capacity(512);
 
     for i in 0..=0xFF {
         let repr = format!("{:#04X}", i);
-        lookup.insert(i, repr);
+        lookup.push(repr);
     }
 
     lookup
@@ -38,7 +36,6 @@ pub(crate) fn decompose_word(value: Word) -> (Byte, Byte) {
 
 #[cfg(test)]
 pub mod tests {
-
     use super::*;
 
     #[test]
