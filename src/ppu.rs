@@ -1,7 +1,7 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use crate::interrupts::InterruptHandler;
+use crate::interrupts::{InterruptHandler, InterruptType};
 use crate::utils::Cycles;
 use crate::{
     memory::Memory,
@@ -113,30 +113,89 @@ impl Ppu {
         for _ in 0..DOTS_PER_TICK {
             self.dots_in_line += 1;
 
-            if self.dots_in_line == SCANLINE_DOTS {
-                self.ly += 1;
-                self.dots_in_line = 0;
-                self.stat.set_ly_lyc_state(self.ly == self.lyc);
+            if self.stat.mode() == LcdStatus::Vblank {
+                if self.dots_in_line == SCANLINE_DOTS {
+                    self.ly += 1;
+                    self.dots_in_line = 0x00;
 
-                if self.stat.lyc_ly_equal() {
-                    // TODO: Raise LY=LYC STAT interrupt here
+                    if self.ly == TOTAL_SCANLINES as Byte {
+                        self.ly = 0x00;
+                        self.stat.set_mode(LcdStatus::OamSearch);
+
+                        if self
+                            .stat
+                            .is_stat_interrupt_source_enabled(LcdStatSource::Mode2Oam)
+                        {
+                            self.interrupts
+                                .borrow_mut()
+                                .request_interrupt(InterruptType::LcdStat);
+                        }
+                    }
                 }
+            } else {
+                // In Mode 2
+                if self.dots_in_line == OAM_SEARCH_DOTS {
+                    self.stat.set_mode(LcdStatus::Rendering);
+                } else if self.dots_in_line == RENDERING_DOTS {
+                    self.stat.set_mode(LcdStatus::Hblank);
+                    if self
+                        .stat
+                        .is_stat_interrupt_source_enabled(LcdStatSource::Mode0Hblank)
+                    {
+                        self.interrupts
+                            .borrow_mut()
+                            .request_interrupt(InterruptType::LcdStat);
+                    }
+                } else if self.dots_in_line == SCANLINE_DOTS {
+                    self.render_line();
 
-                if self.ly == LCD_HEIGHT as Byte {
-                    // TODO: Raise Vblank interrupt here
-                } else if self.ly == TOTAL_SCANLINES as Byte {
-                    // TODO: Move to mode 0 and start new frame
+                    self.ly += 1;
+                    self.dots_in_line = 0;
+                    self.stat.set_ly_lyc_state(self.ly == self.lyc);
+
+                    if self.stat.lyc_ly_equal()
+                        && self
+                            .stat
+                            .is_stat_interrupt_source_enabled(LcdStatSource::LycLyEqual)
+                    {
+                        self.interrupts
+                            .borrow_mut()
+                            .request_interrupt(InterruptType::LcdStat);
+                    }
+
+                    if self.ly == LCD_HEIGHT as Byte {
+                        self.stat.set_mode(LcdStatus::Vblank);
+                        if self
+                            .stat
+                            .is_stat_interrupt_source_enabled(LcdStatSource::Mode1Vblank)
+                        {
+                            self.interrupts
+                                .borrow_mut()
+                                .request_interrupt(InterruptType::Vblank);
+                        }
+                    }
                 }
             }
         }
+    }
+
+    fn render_line(&self) {
+        log::info!("Rendering line {}", self.ly);
     }
 }
 
 impl Memory for Ppu {
     fn read(&self, address: Word) -> Byte {
         match address {
-            VRAM_START..=VRAM_END => self.vram[(address - VRAM_START) as usize],
-            OAM_START..=OAM_END => self.oam[(address - OAM_START) as usize],
+            VRAM_START..=VRAM_END if self.stat.mode() != LcdStatus::Rendering => {
+                self.vram[(address - VRAM_START) as usize]
+            }
+            OAM_START..=OAM_END
+                if self.stat.mode() != LcdStatus::OamSearch
+                    || self.stat.mode() != LcdStatus::Rendering =>
+            {
+                self.oam[(address - OAM_START) as usize]
+            }
             LCDC_ADDRESS => self.lcdc.0,
             STAT_ADDRESS => self.stat.0,
             SCY_ADDRESS => self.scx,
@@ -151,8 +210,15 @@ impl Memory for Ppu {
 
     fn write(&mut self, address: Word, data: Byte) {
         match address {
-            VRAM_START..=VRAM_END => self.vram[(address - VRAM_START) as usize] = data,
-            OAM_START..=OAM_END => self.oam[(address - OAM_START) as usize] = data,
+            VRAM_START..=VRAM_END if self.stat.mode() != LcdStatus::Rendering => {
+                self.vram[(address - VRAM_START) as usize] = data
+            }
+            OAM_START..=OAM_END
+                if self.stat.mode() != LcdStatus::OamSearch
+                    || self.stat.mode() != LcdStatus::Rendering =>
+            {
+                self.oam[(address - OAM_START) as usize] = data
+            }
             LCDC_ADDRESS => self.lcdc.0 = data,
             // Ignore bit 7 as it is not used and don't set status or lyc=ly on write
             STAT_ADDRESS => self.stat.0 = data & !LCD_STAT_MASK & !LYC_LY_EQUAL & 0x7F,
@@ -240,6 +306,7 @@ pub(crate) enum LcdStatSource {
     Mode0Hblank = (1 << 3),
 }
 
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
 enum LcdStatus {
     Hblank = 0,
     Vblank = 1,
