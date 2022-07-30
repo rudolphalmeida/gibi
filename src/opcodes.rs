@@ -7,9 +7,7 @@ use crate::utils::Cycles;
 
 pub(crate) const OPCODE_METADATA: Lazy<Opcodes<'static>> = Lazy::new(|| {
     let opcodes_file = include_str!("../opcodes.json");
-    let metadata = serde_json::from_str(opcodes_file).unwrap();
-
-    metadata
+    serde_json::from_str(opcodes_file).unwrap()
 });
 
 #[derive(Debug, Deserialize, Serialize)]

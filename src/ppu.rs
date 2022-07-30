@@ -1,3 +1,8 @@
+use std::cell::RefCell;
+use std::rc::Rc;
+
+use crate::interrupts::InterruptHandler;
+use crate::utils::Cycles;
 use crate::{
     memory::Memory,
     utils::{Byte, Word},
@@ -29,6 +34,8 @@ pub const OBP1_ADDRESS: Word = 0xFF49;
 pub const WY_ADDRESS: Word = 0xFF4A;
 pub const WX_ADDRESS: Word = 0xFF4B;
 
+const DOTS_PER_TICK: i32 = 4;
+
 enum TilemapBase {
     Base1 = 0x9800,
     Base2 = 0x9C00,
@@ -46,29 +53,83 @@ enum SpriteHeight {
     Tall = 16,
 }
 
+type Dots = Cycles;
+
+const OAM_SEARCH_DOTS: Dots = 80;
+const RENDERING_DOTS: Dots = 168;
+const HBLANK_DOTS: Dots = 208;
+const SCANLINE_DOTS: Dots = OAM_SEARCH_DOTS + RENDERING_DOTS + HBLANK_DOTS;
+
+const LCD_WIDTH: u32 = 160;
+const LCD_HEIGHT: u32 = 144;
+
+const VBLANK_SCANLINES: u32 = 10;
+const TOTAL_SCANLINES: u32 = LCD_HEIGHT + VBLANK_SCANLINES;
+const VBLANK_DOTS: Dots = VBLANK_SCANLINES as Dots * SCANLINE_DOTS;
+
 pub(crate) struct Ppu {
     vram: [Byte; VRAM_SIZE],
     oam: [Byte; OAM_SIZE],
     lcdc: Lcdc,
     stat: LcdStat,
+    dots_in_line: Dots,
+
+    scy: Byte,
+    scx: Byte,
+    ly: Byte,
+    lyc: Byte,
+    wy: Byte,
+    wx: Byte,
+
+    interrupts: Rc<RefCell<InterruptHandler>>,
 }
 
 impl Ppu {
-    pub fn new() -> Self {
+    pub fn new(interrupts: Rc<RefCell<InterruptHandler>>) -> Self {
         let vram = [0xFF; VRAM_SIZE];
         let oam = [0xFF; OAM_SIZE];
         let lcdc = Default::default();
-        let stat = Default::default();
+        let mut stat: LcdStat = Default::default();
+        stat.set_mode(LcdStatus::OamSearch);
+        let dots_in_line = Default::default();
 
         Ppu {
             vram,
             oam,
             lcdc,
             stat,
+            dots_in_line,
+            scy: 0x00,
+            scx: 0x00,
+            ly: 0x00,
+            lyc: 0x00,
+            wy: 0x00,
+            wx: 0x00,
+            interrupts,
         }
     }
 
-    pub fn tick(&mut self) {}
+    pub fn tick(&mut self) {
+        for _ in 0..DOTS_PER_TICK {
+            self.dots_in_line += 1;
+
+            if self.dots_in_line == SCANLINE_DOTS {
+                self.ly += 1;
+                self.dots_in_line = 0;
+                self.stat.set_ly_lyc_state(self.ly == self.lyc);
+
+                if self.stat.lyc_ly_equal() {
+                    // TODO: Raise LY=LYC STAT interrupt here
+                }
+
+                if self.ly == LCD_HEIGHT as Byte {
+                    // TODO: Raise Vblank interrupt here
+                } else if self.ly == TOTAL_SCANLINES as Byte {
+                    // TODO: Move to mode 0 and start new frame
+                }
+            }
+        }
+    }
 }
 
 impl Memory for Ppu {
@@ -78,8 +139,13 @@ impl Memory for Ppu {
             OAM_START..=OAM_END => self.oam[(address - OAM_START) as usize],
             LCDC_ADDRESS => self.lcdc.0,
             STAT_ADDRESS => self.stat.0,
-            LY_ADDRESS => 0x90,
-            _ => 0x90,
+            SCY_ADDRESS => self.scx,
+            SCX_ADDRESS => self.scx,
+            LY_ADDRESS => self.ly,
+            LYC_ADDRESS => self.lyc,
+            WY_ADDRESS => self.wy,
+            WX_ADDRESS => self.wx,
+            _ => 0xFF,
         }
     }
 
@@ -90,6 +156,12 @@ impl Memory for Ppu {
             LCDC_ADDRESS => self.lcdc.0 = data,
             // Ignore bit 7 as it is not used and don't set status or lyc=ly on write
             STAT_ADDRESS => self.stat.0 = data & !LCD_STAT_MASK & !LYC_LY_EQUAL & 0x7F,
+            SCY_ADDRESS => self.scx = data,
+            SCX_ADDRESS => self.scx = data,
+            LY_ADDRESS => self.ly = data,
+            LYC_ADDRESS => self.lyc = data,
+            WY_ADDRESS => self.wy = data,
+            WX_ADDRESS => self.wx = data,
             _ => {}
         }
     }
@@ -201,11 +273,11 @@ impl LcdStat {
         self.0 & source as Byte != 0
     }
 
-    fn lyc_ly_status(&self) -> bool {
+    fn lyc_ly_equal(&self) -> bool {
         self.0 & LYC_LY_EQUAL != 0
     }
 
-    fn update_lyc_state(&mut self, set: bool) {
+    fn set_ly_lyc_state(&mut self, set: bool) {
         if set {
             self.0 |= LYC_LY_EQUAL;
         } else {

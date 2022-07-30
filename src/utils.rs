@@ -1,4 +1,4 @@
-use once_cell::sync::Lazy;
+use once_cell::unsync::Lazy;
 
 pub(crate) type Byte = u8;
 pub(crate) type Word = u16;

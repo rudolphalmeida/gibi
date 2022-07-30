@@ -2,6 +2,7 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use crate::apu::{Apu, SOUND_END, SOUND_START, WAVE_END, WAVE_START};
+use crate::interrupts::{InterruptHandler, INTERRUPT_ENABLE_ADDRESS, INTERRUPT_FLAG_ADDRESS};
 use crate::ppu::{PALETTE_END, PALETTE_START, PPU_REGISTERS_END, PPU_REGISTERS_START};
 use crate::serial::{Serial, SERIAL_END, SERIAL_START};
 use crate::timer::{Timer, TIMER_END, TIMER_START};
@@ -53,10 +54,16 @@ pub(crate) struct Mmu {
     serial: Serial,
     timer: Timer,
     bootrom_enabled: bool,
+    interrupts: Rc<RefCell<InterruptHandler>>,
 }
 
 impl Mmu {
-    pub fn new(options: &Options, ppu: Rc<RefCell<Ppu>>, apu: Rc<RefCell<Apu>>) -> Self {
+    pub fn new(
+        options: &Options,
+        ppu: Rc<RefCell<Ppu>>,
+        apu: Rc<RefCell<Apu>>,
+        interrupts: Rc<RefCell<InterruptHandler>>,
+    ) -> Self {
         let cart = load_from_file(options).unwrap();
         let wram = Vec::from([0x00; WRAM_BANK_SIZE * 2]); // 8KB
         let hram = Vec::from([0x00; HRAM_SIZE]);
@@ -78,6 +85,7 @@ impl Mmu {
             serial,
             timer,
             apu,
+            interrupts,
         }
     }
 
@@ -106,6 +114,7 @@ impl Mmu {
             JOYP_ADDRESS => return self.joypad.read(address),
             SERIAL_START..=SERIAL_END => return self.serial.read(address),
             TIMER_START..=TIMER_END => return self.timer.read(address),
+            INTERRUPT_FLAG_ADDRESS => return self.interrupts.borrow().read(address),
             SOUND_START..=SOUND_END => return self.apu.borrow().read(address),
             WAVE_START..=WAVE_END => return self.apu.borrow().read(address),
             PPU_REGISTERS_START..=PPU_REGISTERS_END => return self.ppu.borrow().read(address),
@@ -114,7 +123,7 @@ impl Mmu {
             PALETTE_START..=PALETTE_END => return self.ppu.borrow().read(address),
             WRAM_BANK_SELECT => {}
             HRAM_START..=HRAM_END => return self.hram[(address - HRAM_START) as usize],
-            0xFFFF => log::info!("Read from IE register {:#06X}", address),
+            INTERRUPT_ENABLE_ADDRESS => return self.interrupts.borrow().read(address),
             _ => log::error!("Unknown address to Mmu::read {:#06X}", address),
         }
         0xFF
@@ -137,6 +146,7 @@ impl Mmu {
             JOYP_ADDRESS => self.joypad.write(address, data),
             SERIAL_START..=SERIAL_END => self.serial.write(address, data),
             TIMER_START..=TIMER_END => self.timer.write(address, data),
+            INTERRUPT_FLAG_ADDRESS => self.interrupts.borrow_mut().write(address, data),
             SOUND_START..=SOUND_END => self.apu.borrow_mut().write(address, data),
             WAVE_START..=WAVE_END => self.apu.borrow_mut().write(address, data),
             PPU_REGISTERS_START..=PPU_REGISTERS_END => self.ppu.borrow_mut().write(address, data),
@@ -150,7 +160,7 @@ impl Mmu {
             PALETTE_START..=PALETTE_END => self.ppu.borrow_mut().write(address, data),
             WRAM_BANK_SELECT => {}
             HRAM_START..=HRAM_END => self.hram[address as usize - 0xFF80] = data,
-            0xFFFF => log::info!("Write to IE register {:#06X} with {:#04X}", address, data),
+            INTERRUPT_ENABLE_ADDRESS => self.interrupts.borrow_mut().write(address, data),
             _ => log::error!("Unknown address to Mmu::write {:#06X}", address),
         }
     }

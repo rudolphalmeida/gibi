@@ -1,6 +1,7 @@
 use std::{cell::RefCell, rc::Rc};
 
 use crate::apu::Apu;
+use crate::interrupts::InterruptHandler;
 use crate::{cpu::Cpu, mmu::Mmu, options::Options, ppu::Ppu};
 
 pub struct Gameboy {
@@ -10,10 +11,17 @@ pub struct Gameboy {
 
 impl Gameboy {
     pub fn new(options: &Options) -> Self {
-        let ppu = Rc::new(RefCell::new(Ppu::new()));
+        let interrupts = Rc::new(RefCell::new(InterruptHandler::default()));
+
+        let ppu = Rc::new(RefCell::new(Ppu::new(Rc::clone(&interrupts))));
         let apu = Rc::new(RefCell::new(Apu::new()));
-        let mmu = Rc::new(RefCell::new(Mmu::new(options, ppu, apu)));
-        let cpu = Cpu::new(Rc::clone(&mmu));
+        let mmu = Rc::new(RefCell::new(Mmu::new(
+            options,
+            ppu,
+            apu,
+            Rc::clone(&interrupts),
+        )));
+        let cpu = Cpu::new(Rc::clone(&mmu), interrupts);
 
         log::debug!("Initialized GameBoy with DMG components");
         Gameboy { mmu, cpu }

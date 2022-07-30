@@ -2,22 +2,47 @@ use std::{cell::RefCell, rc::Rc};
 
 use paste::paste;
 
+use crate::interrupts::{
+    InterruptHandler, InterruptType, InterruptVector, INTERRUPT_ENABLE_ADDRESS,
+    INTERRUPT_FLAG_ADDRESS,
+};
 use crate::{
     memory::Memory,
     mmu::Mmu,
     utils::{compose_word, decompose_word, Byte, Word},
 };
 
+#[derive(Debug, Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
+enum CpuState {
+    Halted,
+    Executing,
+    Stopped,
+}
+
 pub(crate) struct Cpu {
     mmu: Rc<RefCell<Mmu>>,
     regs: Registers,
+
+    state: CpuState,
+
+    ime: bool,
+    interrupts: Rc<RefCell<InterruptHandler>>,
 }
 
 impl Cpu {
-    pub fn new(mmu: Rc<RefCell<Mmu>>) -> Self {
+    pub fn new(mmu: Rc<RefCell<Mmu>>, interrupts: Rc<RefCell<InterruptHandler>>) -> Self {
         let regs = Default::default();
+        let ime = true;
+        let state = CpuState::Executing;
+
         log::debug!("Initialized CPU for DMG");
-        Cpu { mmu, regs }
+        Cpu {
+            mmu,
+            regs,
+            state,
+            ime,
+            interrupts,
+        }
     }
 
     fn fetch(&mut self) -> Byte {
@@ -27,8 +52,63 @@ impl Cpu {
     }
 
     pub fn execute(&mut self) {
-        // TODO: Check for interrupts and halts here
+        // Each HALT execute is equal to 1-m cycle
+        if self.state == CpuState::Halted {
+            self.mmu.borrow().tick();
+            return;
+        }
+
+        self.handle_interrupts();
         self.execute_opcode();
+    }
+
+    /// CPU Interrupt Handler. Should take 5 m-cycles
+    fn handle_interrupts(&mut self) {
+        if self.state != CpuState::Halted && !self.ime {
+            return;
+        }
+
+        let intf = self.mmu.borrow().read(INTERRUPT_FLAG_ADDRESS);
+        let inte = self.mmu.borrow().read(INTERRUPT_ENABLE_ADDRESS);
+
+        let ii = intf & inte;
+        if ii == 0x00 {
+            // No interrupts pending
+            return;
+        }
+
+        // When there are pending interrupts, the CPU starts executing again and jumps to the interrupt
+        // with the highest priority
+        self.state = CpuState::Executing;
+
+        // However, if there are pending interrupts, but *all* interrupts are disabled, the CPU still
+        // needs to be executing, however we don't service any interrupt.
+        if !self.ime {
+            return;
+        }
+        self.ime = false;
+        let highest_priority_interrupt = ii.trailing_zeros();
+        let interrupt = InterruptType::from_index(highest_priority_interrupt);
+        self.interrupts
+            .borrow_mut()
+            .reset_interrupt_request(interrupt);
+
+        // Push PC to stack
+        let (upper, lower) = decompose_word(self.regs.pc);
+        self.regs.sp = self.regs.sp.wrapping_sub(1);
+        self.mmu.borrow_mut().write(self.regs.sp, upper);
+        self.regs.sp = self.regs.sp.wrapping_sub(1);
+        self.mmu.borrow_mut().write(self.regs.sp, lower);
+
+        // Jump to interrupt handler
+        self.regs.pc = match interrupt {
+            InterruptType::Vblank => InterruptVector::Vblank as Word,
+            InterruptType::LcdStat => InterruptVector::LcdStat as Word,
+            InterruptType::Timer => InterruptVector::Timer as Word,
+            InterruptType::Serial => InterruptVector::Serial as Word,
+            InterruptType::Joypad => InterruptVector::Joypad as Word,
+        };
+        self.mmu.borrow().tick(); // The PC set takes another m-cycle
     }
 
     fn execute_opcode(&mut self) {
@@ -71,7 +151,7 @@ impl Cpu {
 
     fn print_debug_log(&self) {
         let pc = self.regs.pc;
-        let byte_0 = self.mmu.borrow().raw_read(pc + 0);
+        let byte_0 = self.mmu.borrow().raw_read(pc);
         let byte_1 = self.mmu.borrow().raw_read(pc + 1);
         let byte_2 = self.mmu.borrow().raw_read(pc + 2);
         let byte_3 = self.mmu.borrow().raw_read(pc + 3);
@@ -173,12 +253,12 @@ impl Cpu {
     }
 
     fn cp_a(&mut self, operand: Byte) {
-        let result = self.regs.a - operand;
+        let (result, borrow) = self.regs.a.overflowing_sub(operand);
 
         self.regs.f.zero = result == 0x00;
         self.regs.f.negative = true;
         self.regs.f.half_carry = (self.regs.a & 0x0F) < (operand & 0x0F);
-        self.regs.f.carry = self.regs.a < operand;
+        self.regs.f.carry = borrow;
     }
 
     fn ld_r16_a(&mut self, opcode: Byte) {

@@ -17,7 +17,7 @@ const RAM_BANK_SIZE: u32 = 1024 * 8; // 8KiB
 
 pub const BOOT_ROM_START: Word = 0x0000;
 pub const BOOT_ROM_END: Word = 0x00FF;
-pub const BOOT_ROM: &'static [Byte; 256] = include_bytes!("../roms/dmg_boot.bin");
+pub const BOOT_ROM: &[Byte; 256] = include_bytes!("../roms/dmg_boot.bin");
 
 pub const CART_ROM_START: Word = 0x0000;
 pub const CART_ROM_END: Word = 0x7FFF;
