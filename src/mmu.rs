@@ -1,4 +1,4 @@
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
 use crate::apu::{Apu, SOUND_END, SOUND_START, WAVE_END, WAVE_START};
@@ -7,6 +7,7 @@ use crate::interrupts::{InterruptHandler, INTERRUPT_ENABLE_ADDRESS, INTERRUPT_FL
 use crate::ppu::{PALETTE_END, PALETTE_START, PPU_REGISTERS_END, PPU_REGISTERS_START};
 use crate::serial::{Serial, SERIAL_END, SERIAL_START};
 use crate::timer::{Timer, TIMER_END, TIMER_START};
+use crate::utils::Cycles;
 use crate::{
     cartridge::{
         Cartridge, BOOT_ROM, BOOT_ROM_END, BOOT_ROM_START, CART_RAM_END, CART_RAM_START,
@@ -55,6 +56,9 @@ pub(crate) struct Mmu {
     timer: Timer,
     bootrom_enabled: bool,
     interrupts: Rc<RefCell<InterruptHandler>>,
+    /// M-cycles taken by the CPU since start of execution. This will take a
+    /// long time to fill
+    pub cpu_m_cycles: Cell<Cycles>,
 }
 
 impl Mmu {
@@ -70,6 +74,7 @@ impl Mmu {
         let joypad = Joypad::new();
         let serial = Serial::new();
         let timer = Timer::new();
+        let cpu_m_cycles = Cell::new(0);
 
         let bootrom_enabled = true;
 
@@ -86,10 +91,13 @@ impl Mmu {
             timer,
             apu,
             interrupts,
+            cpu_m_cycles,
         }
     }
 
     pub fn tick(&self) {
+        self.cpu_m_cycles.set(self.cpu_m_cycles.get() + 1);
+
         self.timer.tick();
         self.ppu.borrow_mut().tick();
         self.apu.borrow_mut().tick();

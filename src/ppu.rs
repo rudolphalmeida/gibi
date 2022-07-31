@@ -180,9 +180,7 @@ impl Ppu {
         }
     }
 
-    fn render_line(&self) {
-        log::info!("Rendering line {}", self.ly);
-    }
+    fn render_line(&self) {}
 }
 
 impl Memory for Ppu {

@@ -112,7 +112,7 @@ impl Cpu {
     }
 
     fn execute_opcode(&mut self) {
-        self.print_debug_log();
+        // self.print_debug_log();
 
         let opcode_byte = self.fetch();
 

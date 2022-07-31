@@ -51,10 +51,11 @@ fn main() -> Result<(), Error> {
         (pixels, framework)
     };
 
-    let mut _gameboy = Gameboy::new(rom);
-    // // gameboy.run();
+    let mut gameboy = Gameboy::new(rom);
 
     event_loop.run(move |event, _, control_flow| {
+        gameboy.run_one_frame();
+
         // Handle input events
         if input.update(&event) {
             // Close events
