@@ -68,8 +68,8 @@ const TOTAL_SCANLINES: u32 = LCD_HEIGHT + VBLANK_SCANLINES;
 const VBLANK_DOTS: Dots = VBLANK_SCANLINES as Dots * SCANLINE_DOTS;
 
 pub(crate) struct Ppu {
-    vram: [Byte; VRAM_SIZE],
-    oam: [Byte; OAM_SIZE],
+    vram: Box<[Byte; VRAM_SIZE]>,
+    oam: Box<[Byte; OAM_SIZE]>,
     lcdc: Lcdc,
     stat: LcdStat,
     dots_in_line: Dots,
@@ -86,8 +86,8 @@ pub(crate) struct Ppu {
 
 impl Ppu {
     pub fn new(interrupts: Rc<RefCell<InterruptHandler>>) -> Self {
-        let vram = [0xFF; VRAM_SIZE];
-        let oam = [0xFF; OAM_SIZE];
+        let vram = Box::new([0xFF; VRAM_SIZE]);
+        let oam = Box::new([0xFF; OAM_SIZE]);
         let lcdc = Default::default();
         let mut stat: LcdStat = Default::default();
         stat.set_mode(LcdStatus::OamSearch);
@@ -151,6 +151,7 @@ impl Ppu {
 
                     self.ly += 1;
                     self.dots_in_line = 0;
+
                     self.stat.set_ly_lyc_state(self.ly == self.lyc);
 
                     if self.stat.lyc_ly_equal()
