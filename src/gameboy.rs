@@ -2,7 +2,8 @@ use std::{cell::RefCell, rc::Rc};
 
 use crate::apu::Apu;
 use crate::interrupts::InterruptHandler;
-use crate::{cpu::Cpu, mmu::Mmu, options::Options, ppu::Ppu};
+use crate::utils::Byte;
+use crate::{cpu::Cpu, mmu::Mmu, ppu::Ppu};
 
 pub struct Gameboy {
     mmu: Rc<RefCell<Mmu>>,
@@ -10,13 +11,13 @@ pub struct Gameboy {
 }
 
 impl Gameboy {
-    pub fn new(options: &Options) -> Self {
+    pub fn new(rom: Vec<Byte>) -> Self {
         let interrupts = Rc::new(RefCell::new(InterruptHandler::default()));
 
         let ppu = Rc::new(RefCell::new(Ppu::new(Rc::clone(&interrupts))));
         let apu = Rc::new(RefCell::new(Apu::new()));
         let mmu = Rc::new(RefCell::new(Mmu::new(
-            options,
+            rom,
             ppu,
             apu,
             Rc::clone(&interrupts),

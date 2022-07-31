@@ -2,18 +2,18 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use crate::apu::{Apu, SOUND_END, SOUND_START, WAVE_END, WAVE_START};
+use crate::cartridge::init_mbc_from_rom;
 use crate::interrupts::{InterruptHandler, INTERRUPT_ENABLE_ADDRESS, INTERRUPT_FLAG_ADDRESS};
 use crate::ppu::{PALETTE_END, PALETTE_START, PPU_REGISTERS_END, PPU_REGISTERS_START};
 use crate::serial::{Serial, SERIAL_END, SERIAL_START};
 use crate::timer::{Timer, TIMER_END, TIMER_START};
 use crate::{
     cartridge::{
-        load_from_file, Cartridge, BOOT_ROM, BOOT_ROM_END, BOOT_ROM_START, CART_RAM_END,
-        CART_RAM_START, CART_ROM_END, CART_ROM_START,
+        Cartridge, BOOT_ROM, BOOT_ROM_END, BOOT_ROM_START, CART_RAM_END, CART_RAM_START,
+        CART_ROM_END, CART_ROM_START,
     },
     joypad::{Joypad, JOYP_ADDRESS},
     memory::Memory,
-    options::Options,
     ppu::{Ppu, OAM_END, OAM_START, VRAM_END, VRAM_START},
     utils::{Byte, Word},
 };
@@ -59,12 +59,12 @@ pub(crate) struct Mmu {
 
 impl Mmu {
     pub fn new(
-        options: &Options,
+        rom: Vec<Byte>,
         ppu: Rc<RefCell<Ppu>>,
         apu: Rc<RefCell<Apu>>,
         interrupts: Rc<RefCell<InterruptHandler>>,
     ) -> Self {
-        let cart = load_from_file(options).unwrap();
+        let cart = init_mbc_from_rom(rom);
         let wram = Vec::from([0x00; WRAM_BANK_SIZE * 2]); // 8KB
         let hram = Vec::from([0x00; HRAM_SIZE]);
         let joypad = Joypad::new();

@@ -53,15 +53,15 @@ enum SpriteHeight {
     Tall = 16,
 }
 
-type Dots = Cycles;
+type Dots = Cycles; // Each m-cycle is 4 dots
 
 const OAM_SEARCH_DOTS: Dots = 80;
 const RENDERING_DOTS: Dots = 168;
 const HBLANK_DOTS: Dots = 208;
 const SCANLINE_DOTS: Dots = OAM_SEARCH_DOTS + RENDERING_DOTS + HBLANK_DOTS;
 
-const LCD_WIDTH: u32 = 160;
-const LCD_HEIGHT: u32 = 144;
+pub const LCD_WIDTH: u32 = 160;
+pub const LCD_HEIGHT: u32 = 144;
 
 const VBLANK_SCANLINES: u32 = 10;
 const TOTAL_SCANLINES: u32 = LCD_HEIGHT + VBLANK_SCANLINES;

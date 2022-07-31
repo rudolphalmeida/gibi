@@ -1,8 +1,5 @@
-use std::io;
-
 use crate::{
     memory::Memory,
-    options::Options,
     utils::{Byte, Word},
 };
 
@@ -25,14 +22,7 @@ pub const CART_ROM_END: Word = 0x7FFF;
 pub const CART_RAM_START: Word = 0xA000;
 pub const CART_RAM_END: Word = 0xBFFF;
 
-pub(crate) fn load_from_file(options: &Options) -> io::Result<Box<dyn Cartridge>> {
-    let rom = std::fs::read(options.rom_file.as_str())?;
-    let mbc = init_mbc_from_rom(rom);
-
-    Ok(mbc)
-}
-
-fn init_mbc_from_rom(rom: Vec<Byte>) -> Box<dyn Cartridge> {
+pub(crate) fn init_mbc_from_rom(rom: Vec<Byte>) -> Box<dyn Cartridge> {
     match rom[CARTRIDGE_TYPE_ADDRESS as usize] {
         0x00 => Box::new(NoMbc::new(rom)),
         // TODO: More MBCs
