@@ -55,6 +55,7 @@ fn main() -> Result<(), Error> {
 
     event_loop.run(move |event, _, control_flow| {
         gameboy.run_one_frame();
+        gameboy.copy_framebuffer_to_draw_target(pixels.get_frame());
 
         // Handle input events
         if input.update(&event) {
@@ -76,8 +77,9 @@ fn main() -> Result<(), Error> {
             }
 
             // TODO: Check for Joypad presses here
-            window.request_redraw();
         }
+
+        window.request_redraw();
 
         match event {
             Event::WindowEvent { event, .. } => {

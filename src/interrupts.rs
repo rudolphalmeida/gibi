@@ -6,7 +6,7 @@ pub(crate) const INTERRUPT_ENABLE_ADDRESS: Word = 0xFFFF;
 
 #[derive(Debug, Copy, Clone)]
 pub(crate) enum InterruptType {
-    Vblank = 0,
+    Vblank = 1,
     LcdStat = (1 << 1),
     Timer = (1 << 2),
     Serial = (1 << 3),

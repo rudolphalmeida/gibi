@@ -17,11 +17,7 @@ pub(crate) struct Framework {
     gui: Gui,
 }
 
-/// Example application state. A real application will need a lot more state than this.
-struct Gui {
-    /// Only show the egui window when true.
-    window_open: bool,
-}
+struct Gui {}
 
 impl Framework {
     /// Create egui.
@@ -120,35 +116,9 @@ impl Framework {
 impl Gui {
     /// Create a `Gui`.
     fn new() -> Self {
-        Self { window_open: true }
+        Self {}
     }
 
     /// Create the UI using egui.
-    fn ui(&mut self, ctx: &Context) {
-        egui::TopBottomPanel::top("menubar_container").show(ctx, |ui| {
-            egui::menu::bar(ui, |ui| {
-                ui.menu_button("File", |ui| {
-                    if ui.button("About...").clicked() {
-                        self.window_open = true;
-                        ui.close_menu();
-                    }
-                })
-            });
-        });
-
-        egui::Window::new("Hello, egui!")
-            .open(&mut self.window_open)
-            .show(ctx, |ui| {
-                ui.label("This example demonstrates using egui with pixels.");
-                ui.label("Made with 💖 in San Francisco!");
-
-                ui.separator();
-
-                ui.horizontal(|ui| {
-                    ui.spacing_mut().item_spacing.x /= 2.0;
-                    ui.label("Learn more about egui at");
-                    ui.hyperlink("https://docs.rs/egui");
-                });
-            });
-    }
+    fn ui(&mut self, _ctx: &Context) {}
 }

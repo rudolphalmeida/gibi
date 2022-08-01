@@ -2,7 +2,7 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use crate::interrupts::{InterruptHandler, InterruptType};
-use crate::utils::Cycles;
+use crate::utils::{bit_value, Cycles};
 use crate::{
     memory::Memory,
     utils::{Byte, Word},
@@ -35,6 +35,12 @@ pub const WY_ADDRESS: Word = 0xFF4A;
 pub const WX_ADDRESS: Word = 0xFF4B;
 
 const DOTS_PER_TICK: i32 = 4;
+
+const BG_MAP_SIZE: usize = 256;
+const TILE_WIDTH_PX: usize = 8;
+const TILE_HEIGHT_PX: usize = 8;
+const TILES_PER_LINE: usize = 32;
+const SIZEOF_TILE: usize = 16; // Each tile is 16 bytes
 
 enum TilemapBase {
     Base1 = 0x9800,
@@ -81,7 +87,13 @@ pub(crate) struct Ppu {
     wy: Byte,
     wx: Byte,
 
+    bgp: Byte,
+    obp0: Byte,
+    obp1: Byte,
+
     interrupts: Rc<RefCell<InterruptHandler>>,
+
+    framebuffer: Vec<Byte>,
 }
 
 impl Ppu {
@@ -92,6 +104,8 @@ impl Ppu {
         let mut stat: LcdStat = Default::default();
         stat.set_mode(LcdStatus::OamSearch);
         let dots_in_line = Default::default();
+        // We are using a RGBA format pixel buffer
+        let framebuffer = Vec::from([0x00; (LCD_WIDTH * LCD_HEIGHT * 4) as usize]);
 
         Ppu {
             vram,
@@ -105,7 +119,11 @@ impl Ppu {
             lyc: 0x00,
             wy: 0x00,
             wx: 0x00,
+            bgp: 0x00,
+            obp0: 0x00,
+            obp1: 0x00,
             interrupts,
+            framebuffer,
         }
     }
 
@@ -180,7 +198,75 @@ impl Ppu {
         }
     }
 
-    fn render_line(&self) {}
+    pub fn copy_framebuffer_to_draw_target(&self, buffer: &mut [Byte]) {
+        buffer.copy_from_slice(self.framebuffer.as_slice());
+    }
+
+    fn render_line(&mut self) {
+        if !self.lcdc.lcd_enabled() {
+            return;
+        }
+
+        if self.lcdc.bg_and_window_enabled() {
+            self.draw_background_scanline();
+        } else {
+            let palette = Palette::new(self.bgp);
+            let row_first_index = self.ly as usize * LCD_WIDTH as usize * 4;
+            let row_last_index = (self.ly + 1) as usize * LCD_WIDTH as usize * 4 - 1;
+
+            for pixel in self.framebuffer[row_first_index..=row_last_index].chunks_mut(4) {
+                pixel.copy_from_slice(palette.color0());
+            }
+        }
+    }
+
+    fn draw_background_scanline(&mut self) {
+        let palette = Palette::new(self.bgp);
+
+        let tileset_address = self.lcdc.bg_and_window_tiledata_area() as usize;
+        let tilemap_address = self.lcdc.bg_tilemap_area() as usize;
+
+        let screen_y = self.ly as usize;
+        let row_first_index = screen_y * LCD_WIDTH as usize * 4;
+        let row_last_index = (screen_y + 1) * LCD_WIDTH as usize * 4 - 1;
+
+        for (screen_x, pixel) in self.framebuffer[row_first_index..=row_last_index as usize]
+            .chunks_mut(4)
+            .enumerate()
+        {
+            // Displace the coordinate in the background map by the position of the viewport that is
+            // shown on the screen and wrap around the BG map if it overflows the BG map
+            let bg_map_x = (screen_x + self.scx as usize) % BG_MAP_SIZE;
+            let bg_map_y = (screen_y + self.scy as usize) % BG_MAP_SIZE;
+
+            let tile_x = bg_map_x / TILE_WIDTH_PX;
+            let tile_y = bg_map_y / TILE_HEIGHT_PX;
+
+            let tile_pixel_x = bg_map_x % TILE_WIDTH_PX;
+            let tile_pixel_y = bg_map_y % TILE_HEIGHT_PX;
+
+            let tile_index = tile_y * TILES_PER_LINE + tile_x;
+            let tile_index_address = tilemap_address + tile_index;
+            let tile_id = self.vram[tile_index_address - VRAM_START as usize];
+
+            let tiledata_mem_offset = match self.lcdc.bg_and_window_tiledata_area() {
+                TiledataAddressingMode::Signed => {
+                    (tile_id as i8 as i16 + 128) as usize * SIZEOF_TILE
+                }
+                TiledataAddressingMode::Unsigned => tile_id as usize * SIZEOF_TILE,
+            };
+            let tiledata_line_offset = tile_pixel_y * 2;
+            let tile_line_data_start_address =
+                tileset_address + tiledata_mem_offset + tiledata_line_offset;
+
+            let pixel_1 = self.vram[tile_line_data_start_address - VRAM_START as usize];
+            let pixel_2 = self.vram[tile_line_data_start_address + 1 - VRAM_START as usize];
+
+            let color_id = bit_value(pixel_2, 7 - tile_pixel_x as Byte) << 1
+                | bit_value(pixel_1, 7 - tile_pixel_x as Byte);
+            pixel.copy_from_slice(palette.actual_color_from_index(color_id));
+        }
+    }
 }
 
 impl Memory for Ppu {
@@ -197,10 +283,13 @@ impl Memory for Ppu {
             }
             LCDC_ADDRESS => self.lcdc.0,
             STAT_ADDRESS => self.stat.0,
-            SCY_ADDRESS => self.scx,
+            SCY_ADDRESS => self.scy,
             SCX_ADDRESS => self.scx,
             LY_ADDRESS => self.ly,
             LYC_ADDRESS => self.lyc,
+            BGP_ADDRESS => self.bgp,
+            OBP0_ADDRESS => self.obp0,
+            OBP1_ADDRESS => self.obp1,
             WY_ADDRESS => self.wy,
             WX_ADDRESS => self.wx,
             _ => 0xFF,
@@ -221,10 +310,13 @@ impl Memory for Ppu {
             LCDC_ADDRESS => self.lcdc.0 = data,
             // Ignore bit 7 as it is not used and don't set status or lyc=ly on write
             STAT_ADDRESS => self.stat.0 = data & !LCD_STAT_MASK & !LYC_LY_EQUAL & 0x7F,
-            SCY_ADDRESS => self.scx = data,
+            SCY_ADDRESS => self.scy = data,
             SCX_ADDRESS => self.scx = data,
             LY_ADDRESS => self.ly = data,
             LYC_ADDRESS => self.lyc = data,
+            BGP_ADDRESS => self.bgp = data,
+            OBP0_ADDRESS => self.obp0 = data,
+            OBP1_ADDRESS => self.obp1 = data,
             WY_ADDRESS => self.wy = data,
             WX_ADDRESS => self.wx = data,
             _ => {}
@@ -241,7 +333,7 @@ enum LcdcFlags {
     BgTilemapArea = (1 << 3),
     ObjSize = (1 << 2),
     ObjEnabled = (1 << 1),
-    BgAndWindowEnabled = 0,
+    BgAndWindowEnabled = 1,
 }
 
 #[derive(Debug, Default, Copy, Clone)]
@@ -332,7 +424,6 @@ impl LcdStat {
 
     fn set_mode(&mut self, mode: LcdStatus) {
         self.0 = (self.0 & !LCD_STAT_MASK) | (mode as Byte);
-        // TODO: Raise interrupt for LCD STAT after calling this method
     }
 
     fn is_stat_interrupt_source_enabled(&self, source: LcdStatSource) -> bool {
@@ -349,5 +440,74 @@ impl LcdStat {
         } else {
             self.0 &= !LYC_LY_EQUAL;
         }
+    }
+}
+
+enum GameboyColorShade {
+    White = 0,
+    LightGray = 1,
+    DarkGray = 2,
+    Black = 3,
+}
+
+impl GameboyColorShade {
+    pub fn new(bits: Byte) -> Self {
+        match bits {
+            0 => GameboyColorShade::White,
+            1 => GameboyColorShade::LightGray,
+            2 => GameboyColorShade::DarkGray,
+            3 => GameboyColorShade::Black,
+            _ => panic!("Invalid bits for Color shade"),
+        }
+    }
+}
+
+// TODO: Make this configurable by the GUI
+const RGBA_WHITE: [Byte; 4] = [0x9B, 0xBC, 0x0F, 0xFF];
+const RGBA_LIGHT_GRAY: [Byte; 4] = [0x8B, 0xAC, 0x0F, 0xFF];
+const RGBA_DARK_GRAY: [Byte; 4] = [0x30, 0x62, 0x30, 0xFF];
+const RGBA_BLACK: [Byte; 4] = [0x0F, 0x38, 0x0F, 0xFF];
+
+fn map_to_actual_color(shade: GameboyColorShade) -> &'static [Byte; 4] {
+    match shade {
+        GameboyColorShade::White => &RGBA_WHITE,
+        GameboyColorShade::LightGray => &RGBA_LIGHT_GRAY,
+        GameboyColorShade::DarkGray => &RGBA_DARK_GRAY,
+        GameboyColorShade::Black => &RGBA_BLACK,
+    }
+}
+
+/// Convenience struct to get a color from a palette register
+struct Palette(Byte);
+
+impl Palette {
+    pub fn new(value: Byte) -> Self {
+        Palette(value)
+    }
+
+    pub fn actual_color_from_index(&self, index: Byte) -> &[Byte; 4] {
+        match index {
+            0 => self.color0(),
+            1 => self.color1(),
+            2 => self.color2(),
+            3 => self.color3(),
+            _ => panic!("Invalid index for color palette {}", index),
+        }
+    }
+
+    pub fn color0(&self) -> &[Byte; 4] {
+        map_to_actual_color(GameboyColorShade::new(self.0 & 0x03))
+    }
+
+    pub fn color1(&self) -> &[Byte; 4] {
+        map_to_actual_color(GameboyColorShade::new((self.0 & 0x0C) >> 2))
+    }
+
+    pub fn color2(&self) -> &[Byte; 4] {
+        map_to_actual_color(GameboyColorShade::new((self.0 & 0x30) >> 4))
+    }
+
+    pub fn color3(&self) -> &[Byte; 4] {
+        map_to_actual_color(GameboyColorShade::new((self.0 & 0xC0) >> 6))
     }
 }

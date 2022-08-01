@@ -34,6 +34,14 @@ pub(crate) fn decompose_word(value: Word) -> (Byte, Byte) {
     (msb, lsb)
 }
 
+pub(crate) fn bit_value(value: Byte, index: Byte) -> Byte {
+    if value & (1 << index) != 0 {
+        0x1
+    } else {
+        0x0
+    }
+}
+
 #[cfg(test)]
 pub mod tests {
     use super::*;

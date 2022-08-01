@@ -9,6 +9,7 @@ const CYCLES_PER_FRAME: Cycles = 17556;
 
 pub struct Gameboy {
     mmu: Rc<RefCell<Mmu>>,
+    ppu: Rc<RefCell<Ppu>>,
     cpu: Cpu,
 
     /// Since we run the CPU one opcode at a time or more, each frame can overrun
@@ -27,7 +28,7 @@ impl Gameboy {
         let apu = Rc::new(RefCell::new(Apu::new()));
         let mmu = Rc::new(RefCell::new(Mmu::new(
             rom,
-            ppu,
+            Rc::clone(&ppu),
             apu,
             Rc::clone(&interrupts),
         )));
@@ -39,6 +40,7 @@ impl Gameboy {
         Gameboy {
             mmu,
             cpu,
+            ppu,
             carry_over_cycles,
         }
     }
@@ -52,5 +54,9 @@ impl Gameboy {
         }
 
         self.carry_over_cycles = self.mmu.borrow().cpu_m_cycles.get() - target_machine_cycles;
+    }
+
+    pub fn copy_framebuffer_to_draw_target(&self, buffer: &mut [Byte]) {
+        self.ppu.borrow().copy_framebuffer_to_draw_target(buffer);
     }
 }
