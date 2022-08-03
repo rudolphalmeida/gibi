@@ -283,15 +283,16 @@ impl Ppu {
 impl Memory for Ppu {
     fn read(&self, address: Word) -> Byte {
         match address {
-            VRAM_START..=VRAM_END if self.stat.mode() != LcdStatus::Rendering => {
+            // TODO: VRAM/OAM disable access to CPU after timings are perfect
+            VRAM_START..=VRAM_END /*if self.stat.mode() != LcdStatus::Rendering*/ => {
                 self.vram[(address - VRAM_START) as usize]
             }
             OAM_START..=OAM_END
-                if self.stat.mode() != LcdStatus::OamSearch
-                    || self.stat.mode() != LcdStatus::Rendering =>
-            {
-                self.oam[(address - OAM_START) as usize]
-            }
+            /*if self.stat.mode() != LcdStatus::OamSearch
+                || self.stat.mode() != LcdStatus::Rendering */ =>
+                {
+                    self.oam[(address - OAM_START) as usize]
+                }
             LCDC_ADDRESS => self.lcdc.0,
             STAT_ADDRESS => self.stat.0,
             SCY_ADDRESS => self.scy,
@@ -309,15 +310,16 @@ impl Memory for Ppu {
 
     fn write(&mut self, address: Word, data: Byte) {
         match address {
-            VRAM_START..=VRAM_END if self.stat.mode() != LcdStatus::Rendering => {
+            VRAM_START..=VRAM_END /* if self.stat.mode() != LcdStatus::Rendering */ => {
                 self.vram[(address - VRAM_START) as usize] = data
             }
             OAM_START..=OAM_END
-                if self.stat.mode() != LcdStatus::OamSearch
-                    || self.stat.mode() != LcdStatus::Rendering =>
-            {
-                self.oam[(address - OAM_START) as usize] = data
-            }
+            // if self.stat.mode() != LcdStatus::OamSearch
+            //     || self.stat.mode() != LcdStatus::Rendering
+            =>
+                {
+                    self.oam[(address - OAM_START) as usize] = data
+                }
             LCDC_ADDRESS => self.lcdc.0 = data,
             // Ignore bit 7 as it is not used and don't set status or lyc=ly on write
             STAT_ADDRESS => self.stat.0 = data & !LCD_STAT_MASK & !LYC_LY_EQUAL & 0x7F,
@@ -474,10 +476,10 @@ impl GameboyColorShade {
 }
 
 // TODO: Make this configurable by the GUI
-const RGBA_WHITE: [Byte; 4] = [0xFF, 0xFF, 0xFF, 0xFF];
-const RGBA_LIGHT_GRAY: [Byte; 4] = [0xFF, 0x00, 0x00, 0xFF];
-const RGBA_DARK_GRAY: [Byte; 4] = [0x00, 0xFF, 0x00, 0xFF];
-const RGBA_BLACK: [Byte; 4] = [0x00, 0x00, 0xFF, 0xFF];
+const RGBA_WHITE: [Byte; 4] = [0x9B, 0xBC, 0x0F, 0xFF];
+const RGBA_LIGHT_GRAY: [Byte; 4] = [0x8B, 0xAC, 0x0F, 0xFF];
+const RGBA_DARK_GRAY: [Byte; 4] = [0x30, 0x62, 0x30, 0xFF];
+const RGBA_BLACK: [Byte; 4] = [0x0F, 0x38, 0x0F, 0xFF];
 
 fn map_to_actual_color(shade: GameboyColorShade) -> &'static [Byte; 4] {
     match shade {
