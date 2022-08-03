@@ -8,33 +8,33 @@ use crate::{
     utils::{Byte, Word},
 };
 
-pub const VRAM_START: Word = 0x8000;
-pub const VRAM_END: Word = 0x9FFF;
-pub const VRAM_SIZE: usize = (VRAM_END - VRAM_START + 1) as usize;
+pub(crate) const VRAM_START: Word = 0x8000;
+pub(crate) const VRAM_END: Word = 0x9FFF;
+pub(crate) const VRAM_SIZE: usize = (VRAM_END - VRAM_START + 1) as usize;
 
-pub const OAM_START: Word = 0xFE00;
-pub const OAM_END: Word = 0xFE9F;
-pub const OAM_SIZE: usize = (OAM_END - OAM_START + 1) as usize;
+pub(crate) const OAM_START: Word = 0xFE00;
+pub(crate) const OAM_END: Word = 0xFE9F;
+pub(crate) const OAM_SIZE: usize = (OAM_END - OAM_START + 1) as usize;
 
-pub const PPU_REGISTERS_START: Word = 0xFF40;
-pub const PPU_REGISTERS_END: Word = 0xFF4B;
+pub(crate) const PPU_REGISTERS_START: Word = 0xFF40;
+pub(crate) const PPU_REGISTERS_END: Word = 0xFF4B;
 
-pub const PALETTE_START: Word = 0xFF68;
-pub const PALETTE_END: Word = 0xFF69;
+pub(crate) const PALETTE_START: Word = 0xFF68;
+pub(crate) const PALETTE_END: Word = 0xFF69;
 
-pub const LCDC_ADDRESS: Word = 0xFF40;
-pub const STAT_ADDRESS: Word = 0xFF41;
-pub const SCY_ADDRESS: Word = 0xFF42;
-pub const SCX_ADDRESS: Word = 0xFF43;
-pub const LY_ADDRESS: Word = 0xFF44;
-pub const LYC_ADDRESS: Word = 0xFF45;
-pub const BGP_ADDRESS: Word = 0xFF47;
-pub const OBP0_ADDRESS: Word = 0xFF48;
-pub const OBP1_ADDRESS: Word = 0xFF49;
-pub const WY_ADDRESS: Word = 0xFF4A;
-pub const WX_ADDRESS: Word = 0xFF4B;
+pub(crate) const LCDC_ADDRESS: Word = 0xFF40;
+pub(crate) const STAT_ADDRESS: Word = 0xFF41;
+pub(crate) const SCY_ADDRESS: Word = 0xFF42;
+pub(crate) const SCX_ADDRESS: Word = 0xFF43;
+pub(crate) const LY_ADDRESS: Word = 0xFF44;
+pub(crate) const LYC_ADDRESS: Word = 0xFF45;
+pub(crate) const BGP_ADDRESS: Word = 0xFF47;
+pub(crate) const OBP0_ADDRESS: Word = 0xFF48;
+pub(crate) const OBP1_ADDRESS: Word = 0xFF49;
+pub(crate) const WY_ADDRESS: Word = 0xFF4A;
+pub(crate) const WX_ADDRESS: Word = 0xFF4B;
 
-const DOTS_PER_TICK: i32 = 4;
+pub(crate) const DOTS_PER_TICK: i32 = 4;
 
 const BG_MAP_SIZE: usize = 256;
 const TILE_WIDTH_PX: usize = 8;
@@ -192,6 +192,17 @@ impl Ppu {
                                 .borrow_mut()
                                 .request_interrupt(InterruptType::Vblank);
                         }
+                    } else {
+                        self.stat.set_mode(LcdStatus::OamSearch);
+
+                        if self
+                            .stat
+                            .is_stat_interrupt_source_enabled(LcdStatSource::Mode2Oam)
+                        {
+                            self.interrupts
+                                .borrow_mut()
+                                .request_interrupt(InterruptType::LcdStat);
+                        }
                     }
                 }
             }
@@ -208,7 +219,7 @@ impl Ppu {
         }
 
         if self.lcdc.bg_and_window_enabled() {
-            self.draw_background_scanline();
+            self.render_background_line();
         } else {
             let palette = Palette::new(self.bgp);
             let row_first_index = self.ly as usize * LCD_WIDTH as usize * 4;
@@ -220,7 +231,7 @@ impl Ppu {
         }
     }
 
-    fn draw_background_scanline(&mut self) {
+    fn render_background_line(&mut self) {
         let palette = Palette::new(self.bgp);
 
         let tileset_address = self.lcdc.bg_and_window_tiledata_area() as usize;
@@ -262,7 +273,7 @@ impl Ppu {
             let pixel_1 = self.vram[tile_line_data_start_address - VRAM_START as usize];
             let pixel_2 = self.vram[tile_line_data_start_address + 1 - VRAM_START as usize];
 
-            let color_id = bit_value(pixel_2, 7 - tile_pixel_x as Byte) << 1
+            let color_id = (bit_value(pixel_2, 7 - tile_pixel_x as Byte) << 1)
                 | bit_value(pixel_1, 7 - tile_pixel_x as Byte);
             pixel.copy_from_slice(palette.actual_color_from_index(color_id));
         }
@@ -312,7 +323,7 @@ impl Memory for Ppu {
             STAT_ADDRESS => self.stat.0 = data & !LCD_STAT_MASK & !LYC_LY_EQUAL & 0x7F,
             SCY_ADDRESS => self.scy = data,
             SCX_ADDRESS => self.scx = data,
-            LY_ADDRESS => self.ly = data,
+            LY_ADDRESS => {}
             LYC_ADDRESS => self.lyc = data,
             BGP_ADDRESS => self.bgp = data,
             OBP0_ADDRESS => self.obp0 = data,
@@ -463,10 +474,10 @@ impl GameboyColorShade {
 }
 
 // TODO: Make this configurable by the GUI
-const RGBA_WHITE: [Byte; 4] = [0x9B, 0xBC, 0x0F, 0xFF];
-const RGBA_LIGHT_GRAY: [Byte; 4] = [0x8B, 0xAC, 0x0F, 0xFF];
-const RGBA_DARK_GRAY: [Byte; 4] = [0x30, 0x62, 0x30, 0xFF];
-const RGBA_BLACK: [Byte; 4] = [0x0F, 0x38, 0x0F, 0xFF];
+const RGBA_WHITE: [Byte; 4] = [0xFF, 0xFF, 0xFF, 0xFF];
+const RGBA_LIGHT_GRAY: [Byte; 4] = [0xFF, 0x00, 0x00, 0xFF];
+const RGBA_DARK_GRAY: [Byte; 4] = [0x00, 0xFF, 0x00, 0xFF];
+const RGBA_BLACK: [Byte; 4] = [0x00, 0x00, 0xFF, 0xFF];
 
 fn map_to_actual_color(shade: GameboyColorShade) -> &'static [Byte; 4] {
     match shade {

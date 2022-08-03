@@ -1,4 +1,5 @@
 use clap::Parser;
+use image::ColorType;
 use pixels::{Error, Pixels, SurfaceTexture};
 use winit::dpi::LogicalSize;
 use winit::event::{Event, VirtualKeyCode};
@@ -52,10 +53,21 @@ fn main() -> Result<(), Error> {
     };
 
     let mut gameboy = Gameboy::new(rom);
+    let mut frame_number = 0;
 
     event_loop.run(move |event, _, control_flow| {
         gameboy.run_one_frame();
         gameboy.copy_framebuffer_to_draw_target(pixels.get_frame());
+
+        image::save_buffer(
+            format!("frames/Frame-{}.png", frame_number),
+            pixels.get_frame(),
+            LCD_WIDTH,
+            LCD_HEIGHT,
+            ColorType::Rgba8,
+        )
+        .expect("Failed to save image");
+        frame_number += 1;
 
         // Handle input events
         if input.update(&event) {
@@ -88,8 +100,6 @@ fn main() -> Result<(), Error> {
             }
             // Draw the current frame
             Event::RedrawRequested(_) => {
-                // TODO: Draw the frame here
-
                 framework.prepare(&window);
 
                 // Render everything together
