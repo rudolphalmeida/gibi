@@ -42,6 +42,18 @@ pub(crate) fn bit_value(value: Byte, index: Byte) -> Byte {
     }
 }
 
+/// Calculate the minimum number of bits required to store a value
+pub(crate) fn min_number_of_bits(mut value: Byte) -> Byte {
+    let mut count = 0;
+    println!("{:b}", value);
+    while value > 0 {
+        count += 1;
+        value >>= 1;
+    }
+
+    count
+}
+
 #[cfg(test)]
 pub mod tests {
     use super::*;
@@ -58,5 +70,16 @@ pub mod tests {
         assert_eq!(decompose_word(0x0000), (0x00, 0x00));
         assert_eq!(decompose_word(0xFFFF), (0xFF, 0xFF));
         assert_eq!(decompose_word(0xF00F), (0xF0, 0x0F));
+    }
+
+    #[test]
+    fn test_min_number_of_bits() {
+        assert_eq!(min_number_of_bits(4), 3);
+        assert_eq!(min_number_of_bits(5), 3);
+        assert_eq!(min_number_of_bits(8), 4);
+        assert_eq!(min_number_of_bits(16), 5);
+        assert_eq!(min_number_of_bits(32), 6);
+        assert_eq!(min_number_of_bits(64), 7);
+        assert_eq!(min_number_of_bits(128), 8);
     }
 }

@@ -57,20 +57,21 @@ pub(crate) struct Mmu {
     bootrom_enabled: bool,
     interrupts: Rc<RefCell<InterruptHandler>>,
     /// M-cycles taken by the CPU since start of execution. This will take a
-    /// long time to fill
+    /// long time to overflow
     pub cpu_m_cycles: Cell<Cycles>,
 }
 
 impl Mmu {
     pub fn new(
         rom: Vec<Byte>,
+        ram: Option<Vec<Byte>>,
         ppu: Rc<RefCell<Ppu>>,
         apu: Rc<RefCell<Apu>>,
         interrupts: Rc<RefCell<InterruptHandler>>,
     ) -> Self {
-        let cart = init_mbc_from_rom(rom);
-        let wram = Vec::from([0x00; WRAM_BANK_SIZE * 2]); // 8KB
-        let hram = Vec::from([0x00; HRAM_SIZE]);
+        let cart = init_mbc_from_rom(rom, ram);
+        let wram = vec![0x00; WRAM_BANK_SIZE * 2]; // 8KB
+        let hram = vec![0x00; HRAM_SIZE];
         let joypad = Joypad::new();
         let serial = Serial::new();
         let timer = Timer::new();

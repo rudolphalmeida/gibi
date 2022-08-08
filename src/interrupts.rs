@@ -24,6 +24,16 @@ impl InterruptType {
             _ => panic!("Impossible interrupt index {}", interrupt_index),
         }
     }
+
+    pub fn vector(&self) -> Word {
+        match self {
+            InterruptType::Vblank => InterruptVector::Vblank as Word,
+            InterruptType::LcdStat => InterruptVector::LcdStat as Word,
+            InterruptType::Timer => InterruptVector::Timer as Word,
+            InterruptType::Serial => InterruptVector::Serial as Word,
+            InterruptType::Joypad => InterruptVector::Joypad as Word,
+        }
+    }
 }
 
 pub(crate) enum InterruptVector {

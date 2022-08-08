@@ -21,13 +21,14 @@ pub struct Gameboy {
 }
 
 impl Gameboy {
-    pub fn new(rom: Vec<Byte>) -> Self {
+    pub fn new(rom: Vec<Byte>, ram: Option<Vec<Byte>>) -> Self {
         let interrupts = Rc::new(RefCell::new(InterruptHandler::default()));
 
         let ppu = Rc::new(RefCell::new(Ppu::new(Rc::clone(&interrupts))));
         let apu = Rc::new(RefCell::new(Apu::new()));
         let mmu = Rc::new(RefCell::new(Mmu::new(
             rom,
+            ram,
             Rc::clone(&ppu),
             apu,
             Rc::clone(&interrupts),
@@ -36,7 +37,14 @@ impl Gameboy {
         let carry_over_cycles = 0;
 
         log::debug!("Initialized GameBoy with DMG components");
-        log::info!("Loaded a cartridge with MBC: {}", mmu.borrow().cart.name());
+        {
+            let mmu = mmu.borrow();
+            log::info!("Loaded a cartridge with MBC: {}", mmu.cart.name());
+            log::info!("Number of ROM banks: {}", mmu.cart.rom_banks());
+            log::info!("ROM size (Bytes): {}", mmu.cart.rom_size());
+            log::info!("Number of RAM banks: {}", mmu.cart.ram_banks());
+            log::info!("RAM size (Bytes): {}", mmu.cart.ram_banks());
+        }
         Gameboy {
             mmu,
             cpu,

@@ -3,8 +3,7 @@ use std::{cell::RefCell, rc::Rc};
 use paste::paste;
 
 use crate::interrupts::{
-    InterruptHandler, InterruptType, InterruptVector, INTERRUPT_ENABLE_ADDRESS,
-    INTERRUPT_FLAG_ADDRESS,
+    InterruptHandler, InterruptType, INTERRUPT_ENABLE_ADDRESS, INTERRUPT_FLAG_ADDRESS,
 };
 use crate::{
     memory::Memory,
@@ -101,13 +100,7 @@ impl Cpu {
         self.mmu.borrow_mut().write(self.regs.sp, lower);
 
         // Jump to interrupt handler
-        self.regs.pc = match interrupt {
-            InterruptType::Vblank => InterruptVector::Vblank as Word,
-            InterruptType::LcdStat => InterruptVector::LcdStat as Word,
-            InterruptType::Timer => InterruptVector::Timer as Word,
-            InterruptType::Serial => InterruptVector::Serial as Word,
-            InterruptType::Joypad => InterruptVector::Joypad as Word,
-        };
+        self.regs.pc = interrupt.vector();
         self.mmu.borrow().tick(); // The PC set takes another m-cycle
     }
 
@@ -117,6 +110,7 @@ impl Cpu {
         let opcode_byte = self.fetch();
 
         match opcode_byte {
+            0x00 => {} // NOP
             0x01 | 0x11 | 0x21 | 0x31 => self.ld_r16_u16(opcode_byte),
             0x80..=0xBF => self.alu_a_r8(opcode_byte),
             0xC6 | 0xD6 | 0xE6 | 0xF6 | 0xCE | 0xDE | 0xEE | 0xFE => self.alu_a_u8(opcode_byte),
@@ -141,6 +135,8 @@ impl Cpu {
             0xC9 => self.ret(opcode_byte),
             0xEA => self.ld_u16_a(opcode_byte),
             0xFA => self.ld_a_u16(opcode_byte),
+            0xC3 => self.jp_u16(opcode_byte),
+            0xF3 => self.di(opcode_byte),
             _ => panic!(
                 "Unimplemented or illegal opcode {:#04X} at PC: {:#06X}",
                 opcode_byte,
@@ -302,8 +298,7 @@ impl Cpu {
         let offset = i16::from(self.fetch() as i8) as u16;
 
         if self.check_condition(b43) {
-            self.regs.pc = self.regs.pc.wrapping_add(offset);
-            // TODO: This might be an opcode preload or dummy read. Fix it
+            self.regs.pc = self.regs.pc.wrapping_add(offset); 
             self.mmu.borrow().tick();
         }
     }
@@ -580,6 +575,19 @@ impl Cpu {
 
         let address = compose_word(upper, lower);
         self.regs.a = self.mmu.borrow().read(address);
+    }
+
+    fn jp_u16(&mut self, _: Byte) {
+        let lower = self.fetch();
+        let upper = self.fetch();
+        let target = compose_word(upper, lower);
+
+        self.regs.pc = target;
+        self.mmu.borrow().tick();
+    }
+
+    fn di(&mut self, _: Byte) {
+        self.ime = false;
     }
 }
 
