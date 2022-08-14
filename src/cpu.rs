@@ -661,6 +661,8 @@ macro_rules! register_pair {
     ($upper: ident, $lower: ident) => {
         paste! {
             pub fn [<get_ $upper $lower >](&self) -> Word {
+                // The `.into` is only required for `f`. For all else
+                // it should be a NOP
                 compose_word(self.$upper, self.$lower.into())
             }
 
