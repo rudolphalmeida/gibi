@@ -8,7 +8,8 @@ pub(crate) trait Cartridge: Memory + Mbc {}
 
 const CARTRIDGE_TYPE_ADDRESS: Word = 0x147;
 const ROM_SIZE_ADDRESS: Word = 0x148;
-const ROM_BANK_SIZE: u32 = 1024 * 16; // 16KiB
+const ROM_BANK_SIZE: u32 = 1024 * 16;
+// 16KiB
 const RAM_SIZE_ADDRESS: Word = 0x149;
 const RAM_BANK_SIZE: u32 = 1024 * 8; // 8KiB
 
@@ -172,6 +173,8 @@ impl Mbc for Mbc1 {
 impl Memory for Mbc1 {
     fn read(&self, address: Word) -> Byte {
         match address {
+            0x0000..=0x1FFF if !self.ram_banking_mode => todo!(),
+            0x0000..=0x1FFF if self.ram_banking_mode => todo!(),
             _ => panic!("Read from {:#6X} for {} MBC", address, self.name()),
         }
     }
@@ -180,17 +183,39 @@ impl Memory for Mbc1 {
         match address {
             0x0000..=0x1FFF => self.ram_enabled = data & 0x0F == 0x0A,
             0x2000..=0x3FFF => {
-                self.rom_bank = data & 0x1F; // Write the full 5 bits
-                if self.rom_bank == 0x00 {
-                    self.rom_bank = 0x01;
+                let mut rom_bank = data & 0x1F;
+                // The full 5 bits are used for the 00->01 translation. This for example, can allow
+                // bank 0 to be mapped to 0x4000..=0x7FFF if the ROM need only 4 bits but the value
+                // 0b10000 is being written here. The non-zero value will prevent the 01 translation
+                // however the actual ROM bits will be the lower 4-bits
+                if rom_bank == 0x00 {
+                    rom_bank = 0x01;
                 }
+
+                // However only the actual number of required bits are used for the ROM bank
+                // selection
+                self.rom_bank = rom_bank & self.rom_bit_mask;
             }
             0x4000..=0x5FFF => self.ram_bank = data & 0x03,
-            0x6000..=0x7FFF => self.ram_banking_mode = data != 0x00,
-            // TODO: Write to RAM if enabled and exists
-            0xA000..=0xBFFF if self.ram.is_some() && self.ram_enabled && self.ram_banking_mode => {
+            0x6000..=0x7FFF => self.ram_banking_mode = (data & 0b1) == 0b1,
+            0xA000..=0xBFFF if self.ram_enabled => {
+                let ram_banks = self.ram_banks();
+                let ram_size = self.ram_size();
                 if let Some(ram) = self.ram.as_mut() {
-                    ram[0xA000 + self.ram_bank as usize * 0x2000] = data;
+                    let effective_address = if ram_banks > 1 {
+                        if self.ram_banking_mode {
+                            0x2000 * self.ram_bank as usize + (address as usize - 0xA000)
+                        } else {
+                            // RAM banking not enabled. Use the 0 bank of RAM
+                            address as usize - 0xA000
+                        }
+                    } else {
+                        // Only one bank of RAM exists either the full 8KB or 2KB (which requires
+                        // the % RAM_SIZE)
+                        (address as usize - 0xA000) % ram_size as usize
+                    };
+
+                    ram[effective_address] = data;
                 }
             }
             0xA000..=0xBFFF => {}
