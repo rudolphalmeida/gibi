@@ -57,6 +57,8 @@ impl Cpu {
             return;
         }
 
+        // TODO: This might be an important bug! Maybe interrupts checking needs to happen before
+        //       the check for CPU halts
         self.handle_interrupts();
         self.execute_opcode();
     }
@@ -128,6 +130,7 @@ impl Cpu {
             0xF0 => self.ld_a_ff00_u8(opcode_byte),
             0x0A | 0x1A | 0x2A | 0x3A => self.ld_a_r16(opcode_byte),
             0xCD => self.call_u16(opcode_byte),
+            0xC4 | 0xD4 | 0xCC | 0xDC => self.call_cc_u16(opcode_byte),
             0xC5 | 0xD5 | 0xE5 | 0xF5 => self.push_r16(opcode_byte),
             0xC1 | 0xD1 | 0xE1 | 0xF1 => self.pop_r16(opcode_byte),
             0x07 | 0x17 | 0x27 | 0x37 | 0x0F | 0x1F | 0x2F | 0x3F => self.flag_ops(opcode_byte),
@@ -213,6 +216,7 @@ impl Cpu {
     }
 
     fn adc_a(&mut self, _operand: Byte) {
+        let carry = if self.regs.f.carry { 1 } else { 0 };
         todo!()
     }
 
@@ -231,8 +235,13 @@ impl Cpu {
         todo!()
     }
 
-    fn and_a(&mut self, _operand: Byte) {
-        todo!()
+    fn and_a(&mut self, operand: Byte) {
+        self.regs.a &= operand;
+
+        self.regs.f.zero = self.regs.a == 0x00;
+        self.regs.f.carry = false;
+        self.regs.f.half_carry = true;
+        self.regs.f.negative = false;
     }
 
     fn xor_a(&mut self, operand: Byte) {
@@ -244,8 +253,13 @@ impl Cpu {
         self.regs.f.negative = false;
     }
 
-    fn or_a(&mut self, _operand: Byte) {
-        todo!()
+    fn or_a(&mut self, operand: Byte) {
+        self.regs.a |= operand;
+
+        self.regs.f.zero = self.regs.a == 0x00;
+        self.regs.f.carry = false;
+        self.regs.f.half_carry = false;
+        self.regs.f.negative = false;
     }
 
     fn cp_a(&mut self, operand: Byte) {
@@ -295,16 +309,16 @@ impl Cpu {
 
     fn jr_cc_i8(&mut self, opcode: Byte) {
         let b43 = (opcode & 0x18) >> 3;
-        let offset = i16::from(self.fetch() as i8) as u16;
+        let offset = self.fetch() as i8 as i16 as u16;
 
         if self.check_condition(b43) {
-            self.regs.pc = self.regs.pc.wrapping_add(offset); 
+            self.regs.pc = self.regs.pc.wrapping_add(offset);
             self.mmu.borrow().tick();
         }
     }
 
     fn jr_i8(&mut self, _: Byte) {
-        let offset = i16::from(self.fetch() as i8) as u16;
+        let offset = self.fetch() as i8 as i16 as u16;
         self.regs.pc = self.regs.pc.wrapping_add(offset);
         self.mmu.borrow().tick();
     }
@@ -390,7 +404,7 @@ impl Cpu {
         self.regs.a = self.mmu.borrow().read(0xFF00 + offset);
     }
 
-    fn call_u16(&mut self, _: u8) {
+    fn call_u16(&mut self, _: Byte) {
         let lsb = self.fetch();
         let msb = self.fetch();
         let jump_address = compose_word(msb, lsb);
@@ -406,6 +420,27 @@ impl Cpu {
         self.mmu.borrow_mut().write(self.regs.sp, pc_lower);
 
         self.regs.pc = jump_address;
+    }
+
+    fn call_cc_u16(&mut self, opcode: Byte) {
+        let b43 = (opcode & 0x18) >> 3;
+        let lower = self.fetch();
+        let upper = self.fetch();
+        let jump_address = compose_word(upper, lower);
+
+        if self.check_condition(b43) {
+            // Pre-decrement SP
+            self.regs.sp = self.regs.sp.wrapping_sub(1);
+            self.mmu.borrow().tick();
+
+            // Write return location to stack
+            let (pc_upper, pc_lower) = decompose_word(self.regs.pc);
+            self.mmu.borrow_mut().write(self.regs.sp, pc_upper);
+            self.regs.sp = self.regs.sp.wrapping_sub(1);
+            self.mmu.borrow_mut().write(self.regs.sp, pc_lower);
+
+            self.regs.pc = jump_address;
+        }
     }
 
     fn push_r16(&mut self, opcode: Byte) {
@@ -474,8 +509,17 @@ impl Cpu {
         operand
     }
 
-    fn rr(&self, _operand: u8) -> u8 {
-        todo!()
+    fn rr(&mut self, mut operand: u8) -> u8 {
+        let carry = if self.regs.f.carry { 1 } else { 0 };
+        self.regs.f.carry = (operand & 0b1) != 0;
+        operand >>= 1;
+        operand |= carry << 7;
+
+        self.regs.f.zero = operand == 0x00;
+        self.regs.f.negative = false;
+        self.regs.f.half_carry = false;
+
+        operand
     }
 
     fn sla(&self, _operand: u8) -> u8 {
@@ -490,8 +534,15 @@ impl Cpu {
         todo!()
     }
 
-    fn srl(&self, _operand: u8) -> u8 {
-        todo!()
+    fn srl(&mut self, mut operand: u8) -> u8 {
+        self.regs.f.carry = (operand & 0b1) != 0;
+        operand >>= 1;
+
+        self.regs.f.zero = operand == 0x00;
+        self.regs.f.negative = false;
+        self.regs.f.half_carry = false;
+
+        operand
     }
 
     fn flag_ops(&mut self, opcode: Byte) {
@@ -524,8 +575,10 @@ impl Cpu {
         result
     }
 
-    fn rra(&self) -> u8 {
-        todo!()
+    fn rra(&mut self) -> u8 {
+        let result = self.rr(self.regs.a);
+        self.regs.f.zero = false; // RRA unsets zero flag always
+        result
     }
 
     fn daa(&self) -> u8 {
@@ -580,9 +633,8 @@ impl Cpu {
     fn jp_u16(&mut self, _: Byte) {
         let lower = self.fetch();
         let upper = self.fetch();
-        let target = compose_word(upper, lower);
 
-        self.regs.pc = target;
+        self.regs.pc = compose_word(upper, lower);
         self.mmu.borrow().tick();
     }
 
