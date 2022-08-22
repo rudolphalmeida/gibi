@@ -11,11 +11,10 @@ use crate::{
     utils::{compose_word, decompose_word, Byte, Word},
 };
 
-#[derive(Debug, Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
 enum CpuState {
     Halted,
     Executing,
-    Stopped,
 }
 
 pub(crate) struct Cpu {
@@ -51,32 +50,38 @@ impl Cpu {
     }
 
     pub fn execute(&mut self) {
-        // Each HALT execute is equal to 1-m cycle
-        if self.state == CpuState::Halted {
-            self.mmu.borrow().tick();
-            return;
+        match self.state {
+            CpuState::Halted => {
+                if self.check_for_pending_interrupts() {
+                    self.handle_interrupts();
+                } else {
+                    self.mmu.borrow().tick();
+                }
+            }
+            CpuState::Executing => self.execute_opcode(),
+        }
+    }
+
+    fn check_for_pending_interrupts(&self) -> bool {
+        if !self.ime {
+            return false;
         }
 
-        // TODO: This might be an important bug! Maybe interrupts checking needs to happen before
-        //       the check for CPU halts
-        self.handle_interrupts();
-        self.execute_opcode();
+        let intf = self.mmu.borrow().raw_read(INTERRUPT_FLAG_ADDRESS);
+        let inte = self.mmu.borrow().raw_read(INTERRUPT_ENABLE_ADDRESS);
+
+        let ii = intf & inte;
+        ii != 0x00
     }
 
     /// CPU Interrupt Handler. Should take 5 m-cycles
     fn handle_interrupts(&mut self) {
-        if self.state != CpuState::Halted && !self.ime {
-            return;
-        }
-
+        // Cycle 1
         let intf = self.mmu.borrow().read(INTERRUPT_FLAG_ADDRESS);
+        // Cycle 2
         let inte = self.mmu.borrow().read(INTERRUPT_ENABLE_ADDRESS);
 
         let ii = intf & inte;
-        if ii == 0x00 {
-            // No interrupts pending
-            return;
-        }
 
         // When there are pending interrupts, the CPU starts executing again and jumps to the interrupt
         // with the highest priority
@@ -97,13 +102,15 @@ impl Cpu {
         // Push PC to stack
         let (upper, lower) = decompose_word(self.regs.pc);
         self.regs.sp = self.regs.sp.wrapping_sub(1);
+        // Cycle 3
         self.mmu.borrow_mut().write(self.regs.sp, upper);
         self.regs.sp = self.regs.sp.wrapping_sub(1);
+        // Cycle 4
         self.mmu.borrow_mut().write(self.regs.sp, lower);
 
         // Jump to interrupt handler
         self.regs.pc = interrupt.vector();
-        self.mmu.borrow().tick(); // The PC set takes another m-cycle
+        self.mmu.borrow().tick(); // The PC set takes another m-cycle - Cycle 5
     }
 
     fn execute_opcode(&mut self) {
@@ -135,11 +142,17 @@ impl Cpu {
             0xC1 | 0xD1 | 0xE1 | 0xF1 => self.pop_r16(opcode_byte),
             0x07 | 0x17 | 0x27 | 0x37 | 0x0F | 0x1F | 0x2F | 0x3F => self.flag_ops(opcode_byte),
             0x03 | 0x13 | 0x23 | 0x33 => self.inc_r16(opcode_byte),
+            0x09 | 0x19 | 0x29 | 0x39 => self.add_hl_r16(opcode_byte),
             0xC9 => self.ret(opcode_byte),
+            0xC0 | 0xD0 | 0xC8 | 0xD8 => self.ret_cc(opcode_byte),
             0xEA => self.ld_u16_a(opcode_byte),
             0xFA => self.ld_a_u16(opcode_byte),
             0xC3 => self.jp_u16(opcode_byte),
+            0xC2 | 0xD2 | 0xCA | 0xDA => self.jp_cc_u16(opcode_byte),
             0xF3 => self.di(opcode_byte),
+            0xE9 => self.jp_hl(opcode_byte),
+            0xF8 => self.ld_hl_sp_i8(opcode_byte),
+            0xF9 => self.ld_sp_hl(opcode_byte),
             _ => panic!(
                 "Unimplemented or illegal opcode {:#04X} at PC: {:#06X}",
                 opcode_byte,
@@ -215,9 +228,16 @@ impl Cpu {
         self.regs.a = result;
     }
 
-    fn adc_a(&mut self, _operand: Byte) {
+    fn adc_a(&mut self, operand: Byte) {
         let carry = if self.regs.f.carry { 1 } else { 0 };
-        todo!()
+        let result = self.regs.a.wrapping_add(operand).wrapping_add(carry);
+
+        self.regs.f.zero = result == 0x00;
+        self.regs.f.negative = false;
+        self.regs.f.half_carry = ((self.regs.a & 0xF) + (operand & 0xF) + carry) > 0xF;
+        self.regs.f.carry = ((self.regs.a as u16) + (operand as u16) + (carry as u16)) > 0xFF;
+
+        self.regs.a = result;
     }
 
     fn sub_a(&mut self, operand: Byte) {
@@ -383,7 +403,7 @@ impl Cpu {
     }
 
     fn halt(&mut self, _: Byte) {
-        todo!()
+        self.state = CpuState::Halted
     }
 
     fn ld_r8_r8(&mut self, opcode: u8) {
@@ -424,22 +444,13 @@ impl Cpu {
 
     fn call_cc_u16(&mut self, opcode: Byte) {
         let b43 = (opcode & 0x18) >> 3;
-        let lower = self.fetch();
-        let upper = self.fetch();
-        let jump_address = compose_word(upper, lower);
 
         if self.check_condition(b43) {
-            // Pre-decrement SP
-            self.regs.sp = self.regs.sp.wrapping_sub(1);
-            self.mmu.borrow().tick();
-
-            // Write return location to stack
-            let (pc_upper, pc_lower) = decompose_word(self.regs.pc);
-            self.mmu.borrow_mut().write(self.regs.sp, pc_upper);
-            self.regs.sp = self.regs.sp.wrapping_sub(1);
-            self.mmu.borrow_mut().write(self.regs.sp, pc_lower);
-
-            self.regs.pc = jump_address;
+            self.call_u16(opcode);
+        } else {
+            // Fetch and discard the subroutine address
+            self.fetch();
+            self.fetch();
         }
     }
 
@@ -530,8 +541,8 @@ impl Cpu {
         todo!()
     }
 
-    fn swap(&self, _operand: u8) -> u8 {
-        todo!()
+    fn swap(&self, operand: u8) -> u8 {
+        (operand >> 4) | (operand << 4)
     }
 
     fn srl(&mut self, mut operand: u8) -> u8 {
@@ -581,8 +592,28 @@ impl Cpu {
         result
     }
 
-    fn daa(&self) -> u8 {
-        todo!()
+    fn daa(&mut self) -> u8 {
+        let mut correction = 0x00;
+
+        if self.regs.f.half_carry || (!self.regs.f.negative && (self.regs.a & 0xF) > 9) {
+            correction |= 0x6;
+        }
+
+        if self.regs.f.carry || (!self.regs.f.negative && (self.regs.a > 0x99)) {
+            correction |= 0x60;
+            self.regs.f.carry = true;
+        }
+
+        if self.regs.f.negative {
+            self.regs.a -= correction;
+        } else {
+            self.regs.a += correction;
+        }
+
+        self.regs.f.zero = self.regs.a == 0x00;
+        self.regs.f.half_carry = false;
+
+        self.regs.a
     }
 
     fn cpl(&self) {
@@ -614,6 +645,16 @@ impl Cpu {
         self.mmu.borrow().tick();
     }
 
+    fn ret_cc(&mut self, opcode: Byte) {
+        let b43 = (opcode & 0x18) >> 3;
+
+        self.mmu.borrow().tick(); // Internal branch decision
+
+        if self.check_condition(b43) {
+            self.ret(opcode);
+        }
+    }
+
     fn ld_u16_a(&mut self, _: u8) {
         let lower = self.fetch();
         let upper = self.fetch();
@@ -638,8 +679,54 @@ impl Cpu {
         self.mmu.borrow().tick();
     }
 
+    fn jp_cc_u16(&mut self, opcode: Byte) {
+        let b43 = (opcode & 0x18) >> 3;
+
+        if self.check_condition(b43) {
+            self.jp_u16(opcode);
+        } else {
+            // Fetch and discard the jump address
+            self.fetch();
+            self.fetch();
+        }
+    }
+
     fn di(&mut self, _: Byte) {
         self.ime = false;
+    }
+
+    fn add_hl_r16(&mut self, opcode: Byte) {
+        let b54 = (opcode & 0x30) >> 4;
+        let operand = WordRegister::for_group1(b54, self).get();
+
+        let (result, carry) = self.regs.get_hl().overflowing_add(operand);
+        self.regs.f.negative = false;
+        self.regs.f.carry = carry;
+        self.regs.f.half_carry = (self.regs.get_hl() & 0xFFF) + (operand & 0xFFF) > 0xFFF;
+
+        self.regs.set_hl(result);
+        self.mmu.borrow().tick(); // Second cycle
+    }
+
+    fn jp_hl(&mut self, _: Byte) {
+        self.regs.pc = self.regs.get_hl();
+    }
+
+    fn ld_hl_sp_i8(&mut self, _: Byte) {
+        let operand = self.fetch() as i8 as i16 as u16;
+        let result = self.regs.sp.wrapping_add(operand);
+
+        self.regs.f.zero = false;
+        self.regs.f.negative = false;
+        self.regs.f.half_carry = (self.regs.sp & 0xF) + (operand & 0xF) > 0xF;
+        self.regs.f.carry = (self.regs.sp & 0xFF) + (operand & 0xFF) > 0xFF;
+
+        self.regs.set_hl(result);
+    }
+
+    fn ld_sp_hl(&mut self, _: Byte) {
+        self.regs.sp = self.regs.get_hl();
+        self.mmu.borrow().tick();
     }
 }
 

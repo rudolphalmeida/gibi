@@ -322,7 +322,10 @@ impl Memory for Ppu {
                 }
             LCDC_ADDRESS => self.lcdc.0 = data,
             // Ignore bit 7 as it is not used and don't set status or lyc=ly on write
-            STAT_ADDRESS => self.stat.0 = data & !LCD_STAT_MASK & !LYC_LY_EQUAL & 0x7F,
+            STAT_ADDRESS =>  {
+                self.stat.0 = ((data & 0x78) | (self.stat.0 & 0x7)) & 0x7F;
+                log::debug!("Write to LCD STAT with value: {:b}, STAT: {:b}", data, self.stat.0);
+            },
             SCY_ADDRESS => self.scy = data,
             SCX_ADDRESS => self.scx = data,
             LY_ADDRESS => {}
