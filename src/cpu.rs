@@ -142,6 +142,7 @@ impl Cpu {
             0xC1 | 0xD1 | 0xE1 | 0xF1 => self.pop_r16(opcode_byte),
             0x07 | 0x17 | 0x27 | 0x37 | 0x0F | 0x1F | 0x2F | 0x3F => self.flag_ops(opcode_byte),
             0x03 | 0x13 | 0x23 | 0x33 => self.inc_r16(opcode_byte),
+            0x0B | 0x1B | 0x2B | 0x3B => self.dec_r16(opcode_byte),
             0x09 | 0x19 | 0x29 | 0x39 => self.add_hl_r16(opcode_byte),
             0xC9 => self.ret(opcode_byte),
             0xC0 | 0xD0 | 0xC8 | 0xD8 => self.ret_cc(opcode_byte),
@@ -151,8 +152,11 @@ impl Cpu {
             0xC2 | 0xD2 | 0xCA | 0xDA => self.jp_cc_u16(opcode_byte),
             0xF3 => self.di(opcode_byte),
             0xE9 => self.jp_hl(opcode_byte),
+            0xE8 => self.add_sp_i8(opcode_byte),
             0xF8 => self.ld_hl_sp_i8(opcode_byte),
             0xF9 => self.ld_sp_hl(opcode_byte),
+            0xFB => self.ei(opcode_byte),
+            0x08 => self.ld_u16_sp(opcode_byte),
             _ => panic!(
                 "Unimplemented or illegal opcode {:#04X} at PC: {:#06X}",
                 opcode_byte,
@@ -499,12 +503,32 @@ impl Cpu {
         ByteRegister::for_r8(b321, self).set(result);
     }
 
-    fn rlc(&self, _operand: u8) -> u8 {
-        todo!()
+    fn rlc(&mut self, mut operand: Byte) -> Byte {
+        let bit7 = if operand & 0x80 != 0 { 1 } else { 0 };
+        self.regs.f.carry = bit7 != 0;
+
+        operand <<= 1;
+        operand |= bit7;
+
+        self.regs.f.zero = operand == 0x00;
+        self.regs.f.negative = false;
+        self.regs.f.half_carry = false;
+
+        operand
     }
 
-    fn rrc(&self, _operand: u8) -> u8 {
-        todo!()
+    fn rrc(&mut self, mut operand: Byte) -> Byte {
+        let bit0 = if operand & 0x1 != 0 { 1 } else { 0 };
+        self.regs.f.carry = bit0 != 0;
+
+        operand >>= 1;
+        operand |= bit0 << 7;
+
+        self.regs.f.zero = operand == 0x00;
+        self.regs.f.negative = false;
+        self.regs.f.half_carry = false;
+
+        operand
     }
 
     fn rl(&mut self, mut operand: Byte) -> Byte {
@@ -572,12 +596,16 @@ impl Cpu {
         }
     }
 
-    fn rlca(&self) -> u8 {
-        todo!()
+    fn rlca(&mut self) -> Byte {
+        let result = self.rlc(self.regs.a);
+        self.regs.f.zero = false; // RLCA unsets zero flag always
+        result
     }
 
-    fn rrca(&self) -> u8 {
-        todo!()
+    fn rrca(&mut self) -> Byte {
+        let result = self.rrc(self.regs.a);
+        self.regs.f.zero = false; // RRCA unsets zero flag always
+        result
     }
 
     fn rla(&mut self) -> Byte {
@@ -586,13 +614,13 @@ impl Cpu {
         result
     }
 
-    fn rra(&mut self) -> u8 {
+    fn rra(&mut self) -> Byte {
         let result = self.rr(self.regs.a);
         self.regs.f.zero = false; // RRA unsets zero flag always
         result
     }
 
-    fn daa(&mut self) -> u8 {
+    fn daa(&mut self) -> Byte {
         let mut correction = 0x00;
 
         if self.regs.f.half_carry || (!self.regs.f.negative && (self.regs.a & 0xF) > 9) {
@@ -631,6 +659,11 @@ impl Cpu {
     fn inc_r16(&mut self, opcode: Byte) {
         let b54 = (opcode & 0x30) >> 4;
         WordRegister::for_group1(b54, self).inc();
+    }
+
+    fn dec_r16(&mut self, opcode: Byte) {
+        let b54 = (opcode & 0x30) >> 4;
+        WordRegister::for_group1(b54, self).dec();
     }
 
     fn ret(&mut self, _: Byte) {
@@ -712,6 +745,18 @@ impl Cpu {
         self.regs.pc = self.regs.get_hl();
     }
 
+    fn add_sp_i8(&mut self, _: Byte) {
+        let operand = self.fetch() as i8 as i16 as u16;
+        let result = self.regs.sp.wrapping_add(operand);
+
+        self.regs.f.zero = false;
+        self.regs.f.negative = false;
+        self.regs.f.half_carry = (self.regs.sp & 0xF) + (operand & 0xF) > 0xF;
+        self.regs.f.carry = (self.regs.sp & 0xFF) + (operand & 0xFF) > 0xFF;
+
+        self.regs.sp = result;
+    }
+
     fn ld_hl_sp_i8(&mut self, _: Byte) {
         let operand = self.fetch() as i8 as i16 as u16;
         let result = self.regs.sp.wrapping_add(operand);
@@ -727,6 +772,24 @@ impl Cpu {
     fn ld_sp_hl(&mut self, _: Byte) {
         self.regs.sp = self.regs.get_hl();
         self.mmu.borrow().tick();
+    }
+
+    fn ei(&mut self, _: Byte) {
+        // The effect of EI is delayed by one instruction. This definitely won't execute the interrupt
+        // handler and will execute the next opcode
+        // TODO: Check behaviour if EI is followed by a DI
+        self.execute();
+        self.ime = true;
+    }
+
+    fn ld_u16_sp(&mut self, _: Byte) {
+        let lower = self.fetch();
+        let upper = self.fetch();
+        let address = compose_word(upper, lower);
+        let (sp_upper, sp_lower) = decompose_word(self.regs.sp);
+
+        self.mmu.borrow_mut().write(address, sp_lower);
+        self.mmu.borrow_mut().write(address + 1, sp_upper);
     }
 }
 
@@ -934,6 +997,23 @@ impl<'a> WordRegister<'a> {
                 **reg = reg.wrapping_add(1);
             }
             WordRegister::AccumAndFlag { .. } => panic!("INC not required for AF register"),
+        }
+    }
+
+    fn dec(&mut self) {
+        match self {
+            WordRegister::Pair { lower, upper } => {
+                let (dec_lower, borrow) = lower.overflowing_sub(1);
+                **lower = dec_lower;
+
+                if borrow {
+                    **upper = upper.wrapping_sub(1);
+                }
+            }
+            WordRegister::Single(reg) => {
+                **reg = reg.wrapping_sub(1);
+            }
+            WordRegister::AccumAndFlag { .. } => panic!("DEC not required for AF register"),
         }
     }
 }
