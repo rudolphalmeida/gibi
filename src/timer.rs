@@ -19,6 +19,7 @@ pub(crate) struct Timer {
     tac: Byte,
 
     previous_tima_inc_result: bool,
+    tima_overflowed_last_cycle: bool,
 
     interrupts: Rc<RefCell<InterruptHandler>>,
 }
@@ -32,12 +33,29 @@ impl Timer {
             tac: 0x00,
 
             previous_tima_inc_result: false,
+            tima_overflowed_last_cycle: false,
 
             interrupts,
         }
     }
 
     pub fn tick(&mut self) {
+        if self.tima_overflowed_last_cycle {
+            self.tima = self.tma;
+
+            if self
+                .interrupts
+                .borrow()
+                .is_interrupt_enabled(InterruptType::Timer)
+            {
+                log::info!("Requesting Timer interrupt");
+                self.interrupts
+                    .borrow_mut()
+                    .request_interrupt(InterruptType::Timer);
+            }
+            self.tima_overflowed_last_cycle = false;
+        }
+
         for _ in 0..4 {
             self.div = self.div.wrapping_add(1);
 
@@ -48,23 +66,10 @@ impl Timer {
             // Check for falling edge
             if self.previous_tima_inc_result && !tima_inc_result {
                 let (inc_tima, overflow) = self.tima.overflowing_add(1);
-
-                // TODO: Proper TIMA overflow behaviour
-                self.tima = if overflow {
-                    if self
-                        .interrupts
-                        .borrow()
-                        .is_interrupt_enabled(InterruptType::Timer)
-                    {
-                        self.interrupts
-                            .borrow_mut()
-                            .request_interrupt(InterruptType::Timer);
-                    }
-
-                    self.tma
-                } else {
-                    inc_tima
-                };
+                self.tima = inc_tima;
+                if overflow {
+                    self.tima_overflowed_last_cycle = true;
+                }
             }
 
             self.previous_tima_inc_result = tima_inc_result;

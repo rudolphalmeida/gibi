@@ -1,5 +1,3 @@
-use core::panic;
-
 use crate::{
     memory::Memory,
     utils::{Byte, Word},

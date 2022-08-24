@@ -181,12 +181,14 @@ impl Memory for Mmu {
     /// using `tick` inside it. We want the other components to keep up with the
     /// CPU during each memory access
     fn read(&self, address: Word) -> Byte {
+        let value = self.raw_read(address);
         self.tick();
-        self.raw_read(address)
+        value
     }
 
     fn write(&mut self, address: Word, data: Byte) {
-        self.tick();
+        // TODO: This order might influence how TIMA updates
         self.raw_write(address, data);
+        self.tick();
     }
 }
