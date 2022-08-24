@@ -53,7 +53,7 @@ pub(crate) struct Mmu {
     hram: Vec<Byte>,
     joypad: Joypad,
     serial: Serial,
-    timer: Timer,
+    timer: RefCell<Timer>,
     bootrom_enabled: bool,
     interrupts: Rc<RefCell<InterruptHandler>>,
     /// M-cycles taken by the CPU since start of execution. This will take a
@@ -74,7 +74,7 @@ impl Mmu {
         let hram = vec![0x00; HRAM_SIZE];
         let joypad = Joypad::new();
         let serial = Serial::new();
-        let timer = Timer::new();
+        let timer = RefCell::new(Timer::new(Rc::clone(&interrupts)));
         let cpu_m_cycles = Cell::new(0);
 
         let bootrom_enabled = true;
@@ -99,7 +99,7 @@ impl Mmu {
     pub fn tick(&self) {
         self.cpu_m_cycles.set(self.cpu_m_cycles.get() + 1);
 
-        self.timer.tick();
+        self.timer.borrow_mut().tick();
         self.ppu.borrow_mut().tick();
         self.apu.borrow_mut().tick();
     }
@@ -122,7 +122,7 @@ impl Mmu {
             UNUSED_START..=UNUSED_END => log::error!("Read from unused area {:#06X}", address),
             JOYP_ADDRESS => return self.joypad.read(address),
             SERIAL_START..=SERIAL_END => return self.serial.read(address),
-            TIMER_START..=TIMER_END => return self.timer.read(address),
+            TIMER_START..=TIMER_END => return self.timer.borrow().read(address),
             INTERRUPT_FLAG_ADDRESS => return self.interrupts.borrow().read(address),
             SOUND_START..=SOUND_END => return self.apu.borrow().read(address),
             WAVE_START..=WAVE_END => return self.apu.borrow().read(address),
@@ -154,7 +154,7 @@ impl Mmu {
             }
             JOYP_ADDRESS => self.joypad.write(address, data),
             SERIAL_START..=SERIAL_END => self.serial.write(address, data),
-            TIMER_START..=TIMER_END => self.timer.write(address, data),
+            TIMER_START..=TIMER_END => self.timer.borrow_mut().write(address, data),
             INTERRUPT_FLAG_ADDRESS => self.interrupts.borrow_mut().write(address, data),
             SOUND_START..=SOUND_END => self.apu.borrow_mut().write(address, data),
             WAVE_START..=WAVE_END => self.apu.borrow_mut().write(address, data),

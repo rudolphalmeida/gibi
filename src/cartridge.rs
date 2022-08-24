@@ -92,12 +92,15 @@ impl Memory for NoMbc {
     fn read(&self, address: Word) -> Byte {
         match address {
             0x0000..=0x7FFF => self.rom[address as usize],
-            _ => panic!("Read from {:#6X} for {} MBC", address, self.name()),
+            _ => {
+                log::error!("Read from {:#6X} for {} MBC", address, self.name());
+                0xFF
+            }
         }
     }
 
     fn write(&mut self, address: Word, data: Byte) {
-        panic!(
+        log::error!(
             "Write to {:#6X} with {:#4X} for {} MBC",
             address,
             data,
@@ -213,18 +216,22 @@ impl Memory for Mbc1 {
             }
             0xA000..=0xBFFF if !self.ram_enabled => 0xFF,
             0xA000..=0xBFFF => {
-                let effective_address = self.effective_ram_address(address);
                 if let Some(ram) = self.ram.as_ref() {
+                    let effective_address = self.effective_ram_address(address);
                     ram[effective_address]
                 } else {
-                    panic!(
+                    log::error!(
                         "Read from RAM address {:#6X} for {} MBC with no RAM",
                         address,
                         self.name()
-                    )
+                    );
+                    0xFF
                 }
             }
-            _ => panic!("Read from {:#6X} for {} MBC", address, self.name()),
+            _ => {
+                log::error!("Read from {:#6X} for {} MBC", address, self.name());
+                0xFF
+            }
         }
     }
 
@@ -254,7 +261,7 @@ impl Memory for Mbc1 {
                 }
             }
             0xA000..=0xBFFF => {}
-            _ => panic!(
+            _ => log::error!(
                 "Write to {:#6X} with {:#4X} for {} MBC",
                 address,
                 data,

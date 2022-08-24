@@ -18,11 +18,11 @@ impl Apu {
 
 impl Memory for Apu {
     fn read(&self, _address: Word) -> Byte {
-        log::error!("APU not implemented");
+        log::debug!("APU not implemented");
         0xFF
     }
 
     fn write(&mut self, _address: Word, _data: Byte) {
-        log::error!("APU not implemented");
+        log::debug!("APU not implemented");
     }
 }

@@ -130,11 +130,12 @@ impl Cpu {
             0x06 | 0x16 | 0x26 | 0x36 | 0x0E | 0x1E | 0x2E | 0x3E => self.ld_r8_u8(opcode_byte),
             0x04 | 0x14 | 0x24 | 0x34 | 0x0C | 0x1C | 0x2C | 0x3C => self.inc_r8(opcode_byte),
             0x05 | 0x15 | 0x25 | 0x35 | 0x0D | 0x1D | 0x2D | 0x3D => self.dec_r8(opcode_byte),
-            0xE2 => self.ld_ff00_c_a(opcode_byte),
             0x76 => self.halt(opcode_byte),
             0x40..=0x7F => self.ld_r8_r8(opcode_byte),
             0xE0 => self.ld_ff00_u8_a(opcode_byte),
+            0xE2 => self.ld_ff00_c_a(opcode_byte),
             0xF0 => self.ld_a_ff00_u8(opcode_byte),
+            0xF2 => self.ld_a_ff00_c(opcode_byte),
             0x0A | 0x1A | 0x2A | 0x3A => self.ld_a_r16(opcode_byte),
             0xCD => self.call_u16(opcode_byte),
             0xC4 | 0xD4 | 0xCC | 0xDC => self.call_cc_u16(opcode_byte),
@@ -145,6 +146,7 @@ impl Cpu {
             0x0B | 0x1B | 0x2B | 0x3B => self.dec_r16(opcode_byte),
             0x09 | 0x19 | 0x29 | 0x39 => self.add_hl_r16(opcode_byte),
             0xC9 => self.ret(opcode_byte),
+            0xD9 => self.reti(opcode_byte),
             0xC0 | 0xD0 | 0xC8 | 0xD8 => self.ret_cc(opcode_byte),
             0xEA => self.ld_u16_a(opcode_byte),
             0xFA => self.ld_a_u16(opcode_byte),
@@ -157,6 +159,7 @@ impl Cpu {
             0xF9 => self.ld_sp_hl(opcode_byte),
             0xFB => self.ei(opcode_byte),
             0x08 => self.ld_u16_sp(opcode_byte),
+            0xC7 | 0xD7 | 0xE7 | 0xF7 | 0xCF | 0xDF | 0xEF | 0xFF => self.rst(opcode_byte),
             _ => panic!(
                 "Unimplemented or illegal opcode {:#04X} at PC: {:#06X}",
                 opcode_byte,
@@ -255,17 +258,29 @@ impl Cpu {
         self.regs.a = result;
     }
 
-    fn sbc_a(&mut self, _operand: Byte) {
-        todo!()
+    fn sbc_a(&mut self, operand: Byte) {
+        let carry = if self.regs.f.carry { 1 } else { 0 };
+        let result = self.regs.a.wrapping_sub(operand).wrapping_sub(carry);
+
+        self.regs.f.zero = result == 0x00;
+        self.regs.f.negative = true;
+        self.regs.f.half_carry = (self.regs.a & 0xF)
+            .wrapping_sub(operand & 0xF)
+            .wrapping_sub(carry)
+            & (0xF + 1)
+            != 0;
+        self.regs.f.carry = (self.regs.a as u16) < (operand as u16) + (carry as u16);
+
+        self.regs.a = result;
     }
 
     fn and_a(&mut self, operand: Byte) {
         self.regs.a &= operand;
 
         self.regs.f.zero = self.regs.a == 0x00;
-        self.regs.f.carry = false;
-        self.regs.f.half_carry = true;
         self.regs.f.negative = false;
+        self.regs.f.half_carry = true;
+        self.regs.f.carry = false;
     }
 
     fn xor_a(&mut self, operand: Byte) {
@@ -359,10 +374,8 @@ impl Cpu {
         match prefixed_opcode {
             0x00..=0x3F => self.rotate_and_swap_r8(prefixed_opcode),
             0x40..=0x7F => self.bit_n_r8(prefixed_opcode),
-            _ => panic!(
-                "Unimplemented or illegal prefixed opcode {:#04X}",
-                prefixed_opcode
-            ),
+            0x80..=0xBF => self.res_n_r8(prefixed_opcode),
+            0xC0..=0xFF => self.set_n_r8(prefixed_opcode),
         };
     }
 
@@ -376,10 +389,24 @@ impl Cpu {
         self.regs.f.half_carry = true;
     }
 
-    fn ld_ff00_c_a(&mut self, _: Byte) {
-        self.mmu
-            .borrow_mut()
-            .write(0xFF00 + Word::from(self.regs.c), self.regs.a);
+    fn res_n_r8(&mut self, opcode: Byte) {
+        let b543 = (opcode & 0x38) >> 3;
+        let b321 = opcode & 0x07;
+
+        let mut register = ByteRegister::for_r8(b321, self).get();
+        register &= !(0x1 << b543);
+
+        ByteRegister::for_r8(b321, self).set(register);
+    }
+
+    fn set_n_r8(&mut self, opcode: Byte) {
+        let b543 = (opcode & 0x38) >> 3;
+        let b321 = opcode & 0x07;
+
+        let mut register = ByteRegister::for_r8(b321, self).get();
+        register |= 0x1 << b543;
+
+        ByteRegister::for_r8(b321, self).set(register);
     }
 
     fn inc_r8(&mut self, opcode: u8) {
@@ -423,9 +450,19 @@ impl Cpu {
         self.mmu.borrow_mut().write(0xFF00 + offset, self.regs.a);
     }
 
+    fn ld_ff00_c_a(&mut self, _: Byte) {
+        self.mmu
+            .borrow_mut()
+            .write(0xFF00 + Word::from(self.regs.c), self.regs.a);
+    }
+
     fn ld_a_ff00_u8(&mut self, _: Byte) {
         let offset = Word::from(self.fetch());
         self.regs.a = self.mmu.borrow().read(0xFF00 + offset);
+    }
+
+    fn ld_a_ff00_c(&mut self, _: Byte) {
+        self.regs.a = self.mmu.borrow().read(0xFF00 + self.regs.c as u16);
     }
 
     fn call_u16(&mut self, _: Byte) {
@@ -557,16 +594,37 @@ impl Cpu {
         operand
     }
 
-    fn sla(&self, _operand: u8) -> u8 {
-        todo!()
+    fn sla(&mut self, mut operand: Byte) -> Byte {
+        self.regs.f.carry = operand & 0x80 != 0;
+        operand <<= 1;
+
+        self.regs.f.zero = operand == 0x00;
+        self.regs.f.negative = false;
+        self.regs.f.half_carry = false;
+
+        operand
     }
 
-    fn sra(&self, _operand: u8) -> u8 {
-        todo!()
+    fn sra(&mut self, mut operand: Byte) -> Byte {
+        self.regs.f.carry = operand & 0x1 != 0;
+        operand = ((operand as i8) >> 1) as Byte;
+
+        self.regs.f.zero = operand == 0x00;
+        self.regs.f.negative = false;
+        self.regs.f.half_carry = false;
+
+        operand
     }
 
-    fn swap(&self, operand: u8) -> u8 {
-        (operand >> 4) | (operand << 4)
+    fn swap(&mut self, operand: u8) -> u8 {
+        let result = (operand >> 4) | (operand << 4);
+
+        self.regs.f.zero = result == 0x00;
+        self.regs.f.negative = false;
+        self.regs.f.half_carry = false;
+        self.regs.f.carry = false;
+
+        result
     }
 
     fn srl(&mut self, mut operand: u8) -> u8 {
@@ -644,16 +702,23 @@ impl Cpu {
         self.regs.a
     }
 
-    fn cpl(&self) {
-        todo!()
+    fn cpl(&mut self) {
+        self.regs.a = !self.regs.a;
+
+        self.regs.f.negative = true;
+        self.regs.f.half_carry = true;
     }
 
-    fn scf(&self) {
-        todo!()
+    fn scf(&mut self) {
+        self.regs.f.negative = false;
+        self.regs.f.half_carry = false;
+        self.regs.f.carry = true;
     }
 
-    fn ccf(&self) {
-        todo!()
+    fn ccf(&mut self) {
+        self.regs.f.negative = false;
+        self.regs.f.half_carry = false;
+        self.regs.f.carry = !self.regs.f.carry;
     }
 
     fn inc_r16(&mut self, opcode: Byte) {
@@ -676,6 +741,11 @@ impl Cpu {
         self.regs.pc = compose_word(upper, lower);
         // Final m-cycle
         self.mmu.borrow().tick();
+    }
+
+    fn reti(&mut self, opcode: Byte) {
+        self.ret(opcode);
+        self.ime = true;
     }
 
     fn ret_cc(&mut self, opcode: Byte) {
@@ -775,9 +845,8 @@ impl Cpu {
     }
 
     fn ei(&mut self, _: Byte) {
-        // The effect of EI is delayed by one instruction. This definitely won't execute the interrupt
-        // handler and will execute the next opcode
-        // TODO: Check behaviour if EI is followed by a DI
+        // The effect of EI is delayed by one m-cycle
+        // TODO: Check behaviour if EI is followed by a HALT
         self.execute();
         self.ime = true;
     }
@@ -790,6 +859,22 @@ impl Cpu {
 
         self.mmu.borrow_mut().write(address, sp_lower);
         self.mmu.borrow_mut().write(address + 1, sp_upper);
+    }
+
+    fn rst(&mut self, opcode: Byte) {
+        let target = (opcode & 0x38) as u16;
+
+        // Pre-decrement SP
+        self.regs.sp = self.regs.sp.wrapping_sub(1);
+        self.mmu.borrow().tick();
+
+        // Write return location to stack
+        let (pc_upper, pc_lower) = decompose_word(self.regs.pc);
+        self.mmu.borrow_mut().write(self.regs.sp, pc_upper);
+        self.regs.sp = self.regs.sp.wrapping_sub(1);
+        self.mmu.borrow_mut().write(self.regs.sp, pc_lower);
+
+        self.regs.pc = target;
     }
 }
 
