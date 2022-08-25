@@ -11,10 +11,8 @@ use gibi::{
     ppu::{LCD_HEIGHT, LCD_WIDTH},
 };
 
-use crate::gui::Framework;
 use crate::options::Options;
 
-mod gui;
 mod options;
 
 fn main() -> Result<(), Error> {
@@ -40,15 +38,12 @@ fn main() -> Result<(), Error> {
             .unwrap()
     };
 
-    let (mut pixels, mut framework) = {
+    let mut pixels = {
         let window_size = window.inner_size();
-        let scale_factor = window.scale_factor() as f32;
+        let _scale_factor = window.scale_factor() as f32;
         let surface_texture = SurfaceTexture::new(window_size.width, window_size.height, &window);
-        let pixels = Pixels::new(LCD_WIDTH, LCD_HEIGHT, surface_texture)?;
-        let framework =
-            Framework::new(window_size.width, window_size.height, scale_factor, &pixels);
 
-        (pixels, framework)
+        Pixels::new(LCD_WIDTH, LCD_HEIGHT, surface_texture)?
     };
 
     let mut gameboy = Gameboy::new(rom, None);
@@ -66,14 +61,11 @@ fn main() -> Result<(), Error> {
             }
 
             // Update scale factor
-            if let Some(scale_factor) = input.scale_factor() {
-                framework.scale_factor(scale_factor);
-            }
+            if let Some(_scale_factor) = input.scale_factor() {}
 
             // Resize the window
             if let Some(size) = input.window_resized() {
                 pixels.resize_surface(size.width, size.height);
-                framework.resize(size.width, size.height);
             }
 
             // TODO: Check for Joypad presses here
@@ -82,20 +74,13 @@ fn main() -> Result<(), Error> {
         window.request_redraw();
 
         match event {
-            Event::WindowEvent { event, .. } => {
-                // Update egui inputs
-                framework.handle_event(&event);
-            }
+            Event::WindowEvent { event: _, .. } => {}
             // Draw the current frame
             Event::RedrawRequested(_) => {
-                framework.prepare(&window);
-
                 // Render everything together
                 let render_result = pixels.render_with(|encoder, render_target, context| {
                     // Render the world texture
                     context.scaling_renderer.render(encoder, render_target);
-                    // Render egui
-                    framework.render(encoder, render_target, context);
 
                     Ok(())
                 });

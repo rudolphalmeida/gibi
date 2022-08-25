@@ -50,14 +50,11 @@ impl Cpu {
     }
 
     pub fn execute(&mut self) {
+        // TODO: This takes 2 cycles regardless of whether an interrupt is pending
+        //       or not. Check if this is correct behaviour
+        self.handle_interrupts();
         match self.state {
-            CpuState::Halted => {
-                if self.check_for_pending_interrupts() {
-                    self.handle_interrupts();
-                } else {
-                    self.mmu.borrow().tick();
-                }
-            }
+            CpuState::Halted => self.mmu.borrow().tick(),
             CpuState::Executing => self.execute_opcode(),
         }
     }
@@ -82,6 +79,9 @@ impl Cpu {
         let inte = self.mmu.borrow().read(INTERRUPT_ENABLE_ADDRESS);
 
         let ii = intf & inte;
+        if ii == 0x00 {
+            return;
+        }
 
         // When there are pending interrupts, the CPU starts executing again and jumps to the interrupt
         // with the highest priority
