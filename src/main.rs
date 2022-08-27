@@ -6,6 +6,7 @@ use winit::event_loop::{ControlFlow, EventLoop};
 use winit::window::WindowBuilder;
 use winit_input_helper::WinitInputHelper;
 
+use gibi::joypad::JoypadKeys;
 use gibi::{
     gameboy::Gameboy,
     ppu::{LCD_HEIGHT, LCD_WIDTH},
@@ -14,6 +15,17 @@ use gibi::{
 use crate::options::Options;
 
 mod options;
+
+const JOYPAD_KEY_MAP: [(JoypadKeys, VirtualKeyCode); 8] = [
+    (JoypadKeys::Right, VirtualKeyCode::Right),
+    (JoypadKeys::Left, VirtualKeyCode::Left),
+    (JoypadKeys::Up, VirtualKeyCode::Up),
+    (JoypadKeys::Down, VirtualKeyCode::Down),
+    (JoypadKeys::A, VirtualKeyCode::Z),
+    (JoypadKeys::B, VirtualKeyCode::X),
+    (JoypadKeys::Select, VirtualKeyCode::N),
+    (JoypadKeys::Start, VirtualKeyCode::M),
+];
 
 fn main() -> Result<(), Error> {
     env_logger::init();
@@ -69,6 +81,13 @@ fn main() -> Result<(), Error> {
             }
 
             // TODO: Check for Joypad presses here
+            for (joypad_key, keyboard_key) in JOYPAD_KEY_MAP {
+                if input.key_pressed(keyboard_key) {
+                    gameboy.keydown(joypad_key);
+                } else if input.key_released(keyboard_key) {
+                    gameboy.keyup(joypad_key);
+                }
+            }
         }
 
         window.request_redraw();

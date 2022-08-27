@@ -2,6 +2,7 @@ use std::{cell::RefCell, rc::Rc};
 
 use crate::apu::Apu;
 use crate::interrupts::InterruptHandler;
+use crate::joypad::{Joypad, JoypadKeys};
 use crate::utils::{Byte, Cycles};
 use crate::{cpu::Cpu, mmu::Mmu, ppu::Ppu};
 
@@ -10,6 +11,7 @@ const CYCLES_PER_FRAME: Cycles = 17556;
 pub struct Gameboy {
     mmu: Rc<RefCell<Mmu>>,
     ppu: Rc<RefCell<Ppu>>,
+    joypad: Rc<RefCell<Joypad>>,
     cpu: Cpu,
 
     /// Since we run the CPU one opcode at a time or more, each frame can overrun
@@ -26,11 +28,13 @@ impl Gameboy {
 
         let ppu = Rc::new(RefCell::new(Ppu::new(Rc::clone(&interrupts))));
         let apu = Rc::new(RefCell::new(Apu::new()));
+        let joypad = Rc::new(RefCell::new(Joypad::new(Rc::clone(&interrupts))));
         let mmu = Rc::new(RefCell::new(Mmu::new(
             rom,
             ram,
             Rc::clone(&ppu),
             apu,
+            Rc::clone(&joypad),
             Rc::clone(&interrupts),
         )));
         let cpu = Cpu::new(Rc::clone(&mmu), interrupts);
@@ -48,6 +52,7 @@ impl Gameboy {
         Gameboy {
             mmu,
             cpu,
+            joypad,
             ppu,
             carry_over_cycles,
         }
@@ -66,5 +71,13 @@ impl Gameboy {
 
     pub fn copy_framebuffer_to_draw_target(&self, buffer: &mut [Byte]) {
         self.ppu.borrow().copy_framebuffer_to_draw_target(buffer);
+    }
+
+    pub fn keydown(&mut self, key: JoypadKeys) {
+        self.joypad.borrow_mut().keydown(key);
+    }
+
+    pub fn keyup(&mut self, key: JoypadKeys) {
+        self.joypad.borrow_mut().keyup(key);
     }
 }

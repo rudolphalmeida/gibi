@@ -184,13 +184,18 @@ impl Ppu {
 
                     if self.ly == LCD_HEIGHT as Byte {
                         self.stat.set_mode(LcdStatus::Vblank);
+
+                        self.interrupts
+                            .borrow_mut()
+                            .request_interrupt(InterruptType::Vblank);
+
                         if self
                             .stat
                             .is_stat_interrupt_source_enabled(LcdStatSource::Mode1Vblank)
                         {
                             self.interrupts
                                 .borrow_mut()
-                                .request_interrupt(InterruptType::Vblank);
+                                .request_interrupt(InterruptType::LcdStat);
                         }
                     } else {
                         self.stat.set_mode(LcdStatus::OamSearch);

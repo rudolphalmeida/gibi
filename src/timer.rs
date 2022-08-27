@@ -43,16 +43,10 @@ impl Timer {
         if self.tima_overflowed_last_cycle {
             self.tima = self.tma;
 
-            if self
-                .interrupts
-                .borrow()
-                .is_interrupt_enabled(InterruptType::Timer)
-            {
-                log::info!("Requesting Timer interrupt");
-                self.interrupts
-                    .borrow_mut()
-                    .request_interrupt(InterruptType::Timer);
-            }
+            self.interrupts
+                .borrow_mut()
+                .request_interrupt(InterruptType::Timer);
+
             self.tima_overflowed_last_cycle = false;
         }
 

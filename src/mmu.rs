@@ -51,7 +51,7 @@ pub(crate) struct Mmu {
     apu: Rc<RefCell<Apu>>,
     wram: Vec<Byte>,
     hram: Vec<Byte>,
-    joypad: Joypad,
+    joypad: Rc<RefCell<Joypad>>,
     serial: Serial,
     timer: RefCell<Timer>,
     bootrom_enabled: bool,
@@ -67,12 +67,12 @@ impl Mmu {
         ram: Option<Vec<Byte>>,
         ppu: Rc<RefCell<Ppu>>,
         apu: Rc<RefCell<Apu>>,
+        joypad: Rc<RefCell<Joypad>>,
         interrupts: Rc<RefCell<InterruptHandler>>,
     ) -> Self {
         let cart = init_mbc_from_rom(rom, ram);
         let wram = vec![0x00; WRAM_BANK_SIZE * 2]; // 8KB
         let hram = vec![0x00; HRAM_SIZE];
-        let joypad = Joypad::new();
         let serial = Serial::new();
         let timer = RefCell::new(Timer::new(Rc::clone(&interrupts)));
         let cpu_m_cycles = Cell::new(0);
@@ -100,6 +100,7 @@ impl Mmu {
         self.cpu_m_cycles.set(self.cpu_m_cycles.get() + 1);
 
         self.timer.borrow_mut().tick();
+        self.joypad.borrow_mut().tick();
         self.ppu.borrow_mut().tick();
         self.apu.borrow_mut().tick();
     }
@@ -120,7 +121,7 @@ impl Mmu {
             }
             OAM_START..=OAM_END => return self.ppu.borrow().read(address),
             UNUSED_START..=UNUSED_END => log::error!("Read from unused area {:#06X}", address),
-            JOYP_ADDRESS => return self.joypad.read(address),
+            JOYP_ADDRESS => return self.joypad.borrow().read(address),
             SERIAL_START..=SERIAL_END => return self.serial.read(address),
             TIMER_START..=TIMER_END => return self.timer.borrow().read(address),
             INTERRUPT_FLAG_ADDRESS => return self.interrupts.borrow().read(address),
@@ -152,7 +153,7 @@ impl Mmu {
             UNUSED_START..=UNUSED_END => {
                 log::error!("Write to unused area {:#6X} with {:#04X}", address, data)
             }
-            JOYP_ADDRESS => self.joypad.write(address, data),
+            JOYP_ADDRESS => self.joypad.borrow_mut().write(address, data),
             SERIAL_START..=SERIAL_END => self.serial.write(address, data),
             TIMER_START..=TIMER_END => self.timer.borrow_mut().write(address, data),
             INTERRUPT_FLAG_ADDRESS => self.interrupts.borrow_mut().write(address, data),

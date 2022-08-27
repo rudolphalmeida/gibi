@@ -5,7 +5,7 @@ mod cartridge;
 mod cpu;
 pub mod gameboy;
 mod interrupts;
-mod joypad;
+pub mod joypad;
 mod memory;
 mod mmu;
 mod opcodes;
