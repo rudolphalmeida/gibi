@@ -11,15 +11,16 @@ use crate::{
 pub(crate) const JOYP_ADDRESS: Word = 0xFF00;
 pub(crate) const JOYPAD_POLL_CYCLES: Cycles = 65536; // 64Hz
 
+#[derive(Debug, Copy, Clone)]
 pub enum JoypadKeys {
-    Right = 0,
-    Left = 1,
-    Up = 2,
-    Down = 3,
-    A = 4,
-    B = 5,
-    Select = 6,
-    Start = 7,
+    Right = 1,
+    Left = (1 << 1),
+    Up = (1 << 2),
+    Down = (1 << 3),
+    A = (1 << 4),
+    B = (1 << 5),
+    Select = (1 << 6),
+    Start = (1 << 7),
 }
 
 pub(crate) struct Joypad {
