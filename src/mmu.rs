@@ -4,7 +4,10 @@ use std::rc::Rc;
 use crate::apu::{Apu, SOUND_END, SOUND_START, WAVE_END, WAVE_START};
 use crate::cartridge::init_mbc_from_rom;
 use crate::interrupts::{InterruptHandler, INTERRUPT_ENABLE_ADDRESS, INTERRUPT_FLAG_ADDRESS};
-use crate::ppu::{PALETTE_END, PALETTE_START, PPU_REGISTERS_END, PPU_REGISTERS_START};
+use crate::ppu::{
+    OAM_DMA_ADDRESS, OAM_DMA_CYCLES, PALETTE_END, PALETTE_START, PPU_REGISTERS_END,
+    PPU_REGISTERS_START,
+};
 use crate::serial::{Serial, SERIAL_END, SERIAL_START};
 use crate::timer::{Timer, TIMER_END, TIMER_START};
 use crate::utils::Cycles;
@@ -41,6 +44,11 @@ const WRAM_BANK_SELECT: Word = 0xFF70;
 const HRAM_START: Word = 0xFF80;
 const HRAM_END: u16 = 0xFFFE;
 
+struct OamDma {
+    pending_cycles: Cycles,
+    next_address: Word,
+}
+
 /// The MMU (Memory-Management Unit) is responsible for connecting the CPU to
 /// the rest of the components. The `Mmu` implements the memory-map of the
 /// GameBoy, redirecting reads and writes made by the CPU and PPU to the
@@ -59,6 +67,9 @@ pub(crate) struct Mmu {
     /// M-cycles taken by the CPU since start of execution. This will take a
     /// long time to overflow
     pub cpu_m_cycles: Cell<Cycles>,
+
+    // DMAs
+    oam_dma: RefCell<Option<OamDma>>,
 }
 
 impl Mmu {
@@ -78,6 +89,7 @@ impl Mmu {
         let cpu_m_cycles = Cell::new(0);
 
         let bootrom_enabled = true;
+        let oam_dma = RefCell::new(None);
 
         log::debug!("Initialized MMU for DMG");
 
@@ -93,16 +105,43 @@ impl Mmu {
             apu,
             interrupts,
             cpu_m_cycles,
+            oam_dma,
         }
     }
 
     pub fn tick(&self) {
         self.cpu_m_cycles.set(self.cpu_m_cycles.get() + 1);
 
+        self.tick_oam_dma();
+
         self.timer.borrow_mut().tick();
         self.joypad.borrow_mut().tick();
         self.ppu.borrow_mut().tick();
         self.apu.borrow_mut().tick();
+    }
+
+    fn tick_oam_dma(&self) {
+        // Perform DMA
+        let mut oam_dma_completed = false;
+        if let Some(oam_dma) = self.oam_dma.borrow_mut().as_mut() {
+            let dest_address = 0xFE | (oam_dma.next_address & 0x00FF);
+            let data = self.raw_read(oam_dma.next_address);
+            self.ppu.borrow_mut().write(dest_address, data);
+
+            oam_dma.next_address += 1;
+            match oam_dma.pending_cycles.checked_sub(1) {
+                None => oam_dma_completed = true,
+                Some(x) => oam_dma.pending_cycles = x,
+            }
+        }
+
+        if oam_dma_completed {
+            *self.oam_dma.borrow_mut() = None;
+        }
+    }
+
+    fn oam_dma_in_progress(&self) -> bool {
+        self.oam_dma.borrow().is_some()
     }
 
     /// Raw Read: Read the contents of a memory location without ticking all the
@@ -127,6 +166,7 @@ impl Mmu {
             INTERRUPT_FLAG_ADDRESS => return self.interrupts.borrow().read(address),
             SOUND_START..=SOUND_END => return self.apu.borrow().read(address),
             WAVE_START..=WAVE_END => return self.apu.borrow().read(address),
+            OAM_DMA_ADDRESS => return 0xFF, // TODO: Check if this is correct
             PPU_REGISTERS_START..=PPU_REGISTERS_END => return self.ppu.borrow().read(address),
             BOOTROM_DISABLE => return if self.bootrom_enabled { 0x01 } else { 0x00 },
             VRAM_DMA_START..=VRAM_DMA_END => {}
@@ -159,6 +199,14 @@ impl Mmu {
             INTERRUPT_FLAG_ADDRESS => self.interrupts.borrow_mut().write(address, data),
             SOUND_START..=SOUND_END => self.apu.borrow_mut().write(address, data),
             WAVE_START..=WAVE_END => self.apu.borrow_mut().write(address, data),
+            OAM_DMA_ADDRESS => {
+                let oam_dma = OamDma {
+                    pending_cycles: OAM_DMA_CYCLES,
+                    next_address: (data as Word) << 8,
+                };
+
+                *self.oam_dma.borrow_mut() = Some(oam_dma);
+            }
             PPU_REGISTERS_START..=PPU_REGISTERS_END => self.ppu.borrow_mut().write(address, data),
             BOOTROM_DISABLE => {
                 self.bootrom_enabled = data == 0x00;
@@ -182,14 +230,32 @@ impl Memory for Mmu {
     /// using `tick` inside it. We want the other components to keep up with the
     /// CPU during each memory access
     fn read(&self, address: Word) -> Byte {
-        let value = self.raw_read(address);
+        let value = if self.oam_dma_in_progress() {
+            // Only HRAM is accessible during OAM DMA
+            match address {
+                HRAM_START..=HRAM_END => self.hram[address as usize - 0xFF80],
+                _ => 0xFF,
+            }
+        } else {
+            self.raw_read(address)
+        };
+
         self.tick();
         value
     }
 
     fn write(&mut self, address: Word, data: Byte) {
         // TODO: This order might influence how TIMA updates
-        self.raw_write(address, data);
+        if self.oam_dma_in_progress() {
+            // Only HRAM is accessible during OAM DMA
+            match address {
+                HRAM_START..=HRAM_END => self.hram[address as usize - 0xFF80] = data,
+                _ => {}
+            }
+        } else {
+            self.raw_write(address, data);
+        };
+
         self.tick();
     }
 }

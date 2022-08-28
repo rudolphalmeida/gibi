@@ -28,6 +28,7 @@ pub(crate) const SCY_ADDRESS: Word = 0xFF42;
 pub(crate) const SCX_ADDRESS: Word = 0xFF43;
 pub(crate) const LY_ADDRESS: Word = 0xFF44;
 pub(crate) const LYC_ADDRESS: Word = 0xFF45;
+pub(crate) const OAM_DMA_ADDRESS: Word = 0xFF46;
 pub(crate) const BGP_ADDRESS: Word = 0xFF47;
 pub(crate) const OBP0_ADDRESS: Word = 0xFF48;
 pub(crate) const OBP1_ADDRESS: Word = 0xFF49;
@@ -35,6 +36,7 @@ pub(crate) const WY_ADDRESS: Word = 0xFF4A;
 pub(crate) const WX_ADDRESS: Word = 0xFF4B;
 
 pub(crate) const DOTS_PER_TICK: i32 = 4;
+pub(crate) const OAM_DMA_CYCLES: Cycles = 160;
 
 const BG_MAP_SIZE: usize = 256;
 const TILE_WIDTH_PX: usize = 8;
@@ -344,7 +346,7 @@ impl Ppu {
     }
 
     fn draw_sprites_on_ly(&mut self) {
-        todo!()
+        // todo!()
     }
 }
 

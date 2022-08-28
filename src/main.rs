@@ -1,6 +1,7 @@
+use std::{thread, time};
+
 use clap::Parser;
 use pixels::{Error, Pixels, SurfaceTexture};
-use std::{thread, time};
 use winit::dpi::LogicalSize;
 use winit::event::{Event, VirtualKeyCode};
 use winit::event_loop::{ControlFlow, EventLoop};
@@ -27,7 +28,7 @@ const JOYPAD_KEY_MAP: [(JoypadKeys, VirtualKeyCode); 8] = [
     (JoypadKeys::Select, VirtualKeyCode::N),
     (JoypadKeys::Start, VirtualKeyCode::M),
 ];
-const TARGET_FPS: u64 = 60;
+// const TARGET_FPS: u64 = 60;
 
 fn main() -> Result<(), Error> {
     env_logger::init();
