@@ -1,5 +1,3 @@
-use std::{thread, time};
-
 use clap::Parser;
 use pixels::{Error, Pixels, SurfaceTexture};
 use winit::dpi::LogicalSize;

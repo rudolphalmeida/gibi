@@ -346,7 +346,55 @@ impl Ppu {
     }
 
     fn draw_sprites_on_ly(&mut self) {
-        // todo!()
+        let sprites_on_ly = self.sprites_on_ly();
+        let sprites = self.get_sprites(&sprites_on_ly);
+
+        // On the DMG model the sprite priority is determined by two conditions:
+        // 1. The smaller the X-coordinate the higher the priority
+        // 2. When the X-coordinate is same, the object located first in the
+        //    OAM gets priority
+        // On CGB, only the second condition is used
+        // Drawing in reverse will handle condition 2. For condition 1, the `get_sprites` function
+        // should have sorted the sprites in increasing order of the X-coord if we are DMG mode
+        for _sprite in sprites.iter().rev() {}
+    }
+
+    fn get_sprites(&self, sprite_indices: &Vec<usize>) -> Vec<Sprite> {
+        let mut sprites = Vec::with_capacity(10);
+
+        for index in sprite_indices {
+            let sprite_address = *index as Word * 4;
+            let entry = &self.oam[sprite_address as usize..(sprite_address as usize + 4)];
+            let sprite = Sprite::new(entry);
+            sprites.push(sprite);
+        }
+
+        // Sorting by the X coordinate will take care of the first condition for DMG where the
+        // sprite with the lower X coordinate has higher priority and is drawn over
+        // TODO: This should be skipped when running in CGB mode
+        sprites.sort_by(|sprite1, sprite2| sprite1.x().cmp(&sprite2.x()));
+
+        sprites
+    }
+
+    fn sprites_on_ly(&self) -> Vec<usize> {
+        let mut sprites = Vec::with_capacity(10);
+
+        let sprite_height = self.lcdc.sprite_height() as Byte;
+
+        // When scanning the OAM the PPU selects only the first 10 sprites which fall on the current
+        // scanline
+        for (i, sprite) in self.oam.chunks(4).enumerate() {
+            let screen_y_start = sprite[0].saturating_sub(16);
+            let screen_y_end = sprite[0] + sprite_height;
+
+            if screen_y_start <= self.ly && self.ly < screen_y_end {
+                sprites.push(i);
+            }
+        }
+
+        sprites.truncate(10); // The GameBoy LCD can only show 10 sprites per scanline
+        sprites
     }
 }
 
@@ -403,6 +451,54 @@ impl Memory for Ppu {
             WY_ADDRESS => self.wy = data,
             WX_ADDRESS => self.wx = data,
             _ => {}
+        }
+    }
+}
+
+// OAM Sprites
+struct Sprite<'a> {
+    entry: &'a [Byte],
+}
+
+enum ObjectPalette {
+    Obp0 = OBP0_ADDRESS as isize,
+    Obp1 = OBP1_ADDRESS as isize,
+}
+
+impl<'a> Sprite<'a> {
+    pub fn new(entry: &'a [Byte]) -> Self {
+        Self { entry }
+    }
+
+    pub fn y(&self) -> Byte {
+        self.entry[0]
+    }
+
+    pub fn x(&self) -> Byte {
+        self.entry[1]
+    }
+
+    pub fn tile_index(&self) -> Byte {
+        self.entry[2]
+    }
+
+    pub fn bg_window_over_sprite(&self) -> bool {
+        self.entry[3] & 0x80 != 0
+    }
+
+    pub fn flip_y(&self) -> bool {
+        self.entry[3] & 0x40 != 0
+    }
+
+    pub fn flip_x(&self) -> bool {
+        self.entry[3] & 0x20 != 0
+    }
+
+    pub fn palette(&self) -> ObjectPalette {
+        if self.entry[3] & 0x10 != 0 {
+            ObjectPalette::Obp1
+        } else {
+            ObjectPalette::Obp0
         }
     }
 }
