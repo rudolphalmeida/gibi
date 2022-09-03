@@ -124,7 +124,7 @@ impl Mmu {
         // Perform DMA
         let mut oam_dma_completed = false;
         if let Some(oam_dma) = self.oam_dma.borrow_mut().as_mut() {
-            let dest_address = 0xFE | (oam_dma.next_address & 0x00FF);
+            let dest_address = 0xFE00 | (oam_dma.next_address & 0x00FF);
             let data = self.raw_read(oam_dma.next_address);
             self.ppu.borrow_mut().write(dest_address, data);
 
@@ -159,7 +159,7 @@ impl Mmu {
                 return self.wram[(address - WRAM_ECHO_START) as usize]
             }
             OAM_START..=OAM_END => return self.ppu.borrow().read(address),
-            UNUSED_START..=UNUSED_END => log::error!("Read from unused area {:#06X}", address),
+            UNUSED_START..=UNUSED_END => {}
             JOYP_ADDRESS => return self.joypad.borrow().read(address),
             SERIAL_START..=SERIAL_END => return self.serial.read(address),
             TIMER_START..=TIMER_END => return self.timer.borrow().read(address),
@@ -190,9 +190,7 @@ impl Mmu {
             WRAM_START..=WRAM_END => self.wram[address as usize - 0xC000] = data,
             WRAM_ECHO_START..=WRAM_ECHO_END => self.wram[address as usize - 0xE000] = data,
             OAM_START..=OAM_END => self.ppu.borrow_mut().write(address, data),
-            UNUSED_START..=UNUSED_END => {
-                log::error!("Write to unused area {:#6X} with {:#04X}", address, data)
-            }
+            UNUSED_START..=UNUSED_END => {}
             JOYP_ADDRESS => self.joypad.borrow_mut().write(address, data),
             SERIAL_START..=SERIAL_END => self.serial.write(address, data),
             TIMER_START..=TIMER_END => self.timer.borrow_mut().write(address, data),

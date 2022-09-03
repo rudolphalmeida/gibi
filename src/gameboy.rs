@@ -47,7 +47,7 @@ impl Gameboy {
             log::info!("Number of ROM banks: {}", mmu.cart.rom_banks());
             log::info!("ROM size (Bytes): {}", mmu.cart.rom_size());
             log::info!("Number of RAM banks: {}", mmu.cart.ram_banks());
-            log::info!("RAM size (Bytes): {}", mmu.cart.ram_banks());
+            log::info!("RAM size (Bytes): {}", mmu.cart.ram_size());
         }
         Gameboy {
             mmu,

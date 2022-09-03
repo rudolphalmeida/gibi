@@ -56,6 +56,7 @@ enum TiledataAddressingMode {
     Unsigned = 0x8000,
 }
 
+#[derive(Debug, Clone, Copy)]
 enum SpriteHeight {
     Short = 8,
     Tall = 16,
@@ -346,8 +347,8 @@ impl Ppu {
     }
 
     fn draw_sprites_on_ly(&mut self) {
-        let sprites_on_ly = self.sprites_on_ly();
-        let sprites = self.get_sprites(&sprites_on_ly);
+        let sprites = self.get_sprites_on_ly();
+        let sprite_height = self.lcdc.sprite_height() as Byte;
 
         // On the DMG model the sprite priority is determined by two conditions:
         // 1. The smaller the X-coordinate the higher the priority
@@ -356,23 +357,80 @@ impl Ppu {
         // On CGB, only the second condition is used
         // Drawing in reverse will handle condition 2. For condition 1, the `get_sprites` function
         // should have sorted the sprites in increasing order of the X-coord if we are DMG mode
-        for _sprite in sprites.iter().rev() {}
+        for sprite in sprites.iter().rev() {
+            let sprite_tile_address = sprite.tile_index as Word * SIZEOF_TILE as Word + 0x8000;
+
+            // We offset LY by 16 to ease the following calculations and prevent overflow checks
+            let offsetted_ly = self.ly + 16;
+
+            let sprite_line_offset = if sprite.flip_y() {
+                sprite_height - (offsetted_ly - sprite.y)
+            } else {
+                offsetted_ly - sprite.y
+            };
+
+            let tile_line_data_start_address =
+                sprite_tile_address + (sprite_line_offset as Word * 2);
+            let pixel_1 = self.vram[(tile_line_data_start_address - VRAM_START) as usize];
+            let pixel_2 = self.vram[(tile_line_data_start_address + 1 - VRAM_START) as usize];
+
+            let palette = match sprite.palette() {
+                ObjectPalette::Obp0 => Palette(self.obp0),
+                ObjectPalette::Obp1 => Palette(self.obp1),
+            };
+
+            // Sprite is hidden beyond the screen
+            if sprite.x == 0 || sprite.x >= 168 {
+                continue;
+            }
+
+            // The sprite is partially hidden on the left
+            let (visible_column_start, visible_column_end, screen_x_start) = if sprite.x < 8 {
+                (8 - sprite.x, 7, 0)
+            } else if sprite.x > 160 {
+                (0, sprite.x - 160 - 1, sprite.x - 8)
+            } else {
+                (0, 7, sprite.x - 8)
+            };
+
+            let columns_visible = visible_column_end - visible_column_start + 1;
+
+            let sprite_first_index =
+                self.ly as usize * 4 * LCD_WIDTH as usize + screen_x_start as usize * 4;
+            let sprite_last_index = (self.ly as usize * 4 * LCD_WIDTH as usize
+                + (screen_x_start + columns_visible) as usize * 4)
+                - 1;
+
+            for (i, pixel) in self.framebuffer[sprite_first_index..=sprite_last_index]
+                .chunks_mut(4)
+                .enumerate()
+            {
+                let color_id = (bit_value(pixel_2, 7 - (visible_column_start + i as Byte)) << 1)
+                    | bit_value(pixel_1, 7 - (visible_column_start + i as Byte));
+                // TODO: Sprite/BG priority and sprite transparent color
+                if color_id != 0b00 {
+                    // Color ID 00 is transparent for sprites
+                    pixel.copy_from_slice(palette.actual_color_from_index(color_id));
+                }
+            }
+        }
     }
 
-    fn get_sprites(&self, sprite_indices: &Vec<usize>) -> Vec<Sprite> {
+    fn get_sprites_on_ly(&self) -> Vec<Sprite> {
         let mut sprites = Vec::with_capacity(10);
+        let sprite_indices = self.sprites_on_ly();
 
         for index in sprite_indices {
-            let sprite_address = *index as Word * 4;
+            let sprite_address = index as Word * 4;
             let entry = &self.oam[sprite_address as usize..(sprite_address as usize + 4)];
-            let sprite = Sprite::new(entry);
+            let sprite = Sprite::new(entry[0], entry[1], entry[2], entry[3]);
             sprites.push(sprite);
         }
 
         // Sorting by the X coordinate will take care of the first condition for DMG where the
         // sprite with the lower X coordinate has higher priority and is drawn over
         // TODO: This should be skipped when running in CGB mode
-        sprites.sort_by(|sprite1, sprite2| sprite1.x().cmp(&sprite2.x()));
+        sprites.sort_by(|sprite1, sprite2| sprite1.x.cmp(&sprite2.x));
 
         sprites
     }
@@ -386,8 +444,10 @@ impl Ppu {
         // scanline
         for (i, sprite) in self.oam.chunks(4).enumerate() {
             let screen_y_start = sprite[0].saturating_sub(16);
-            let screen_y_end = sprite[0] + sprite_height;
+            let screen_y_end = (sprite[0] + sprite_height).saturating_sub(16);
 
+            // We don't check if the sprite is hidden below the frame because this function should
+            // not be called for those values of LY at all
             if screen_y_start <= self.ly && self.ly < screen_y_end {
                 sprites.push(i);
             }
@@ -456,46 +516,42 @@ impl Memory for Ppu {
 }
 
 // OAM Sprites
-struct Sprite<'a> {
-    entry: &'a [Byte],
+struct Sprite {
+    y: Byte,
+    x: Byte,
+    tile_index: Byte,
+    attrs: Byte,
 }
 
 enum ObjectPalette {
-    Obp0 = OBP0_ADDRESS as isize,
-    Obp1 = OBP1_ADDRESS as isize,
+    Obp0,
+    Obp1,
 }
 
-impl<'a> Sprite<'a> {
-    pub fn new(entry: &'a [Byte]) -> Self {
-        Self { entry }
-    }
-
-    pub fn y(&self) -> Byte {
-        self.entry[0]
-    }
-
-    pub fn x(&self) -> Byte {
-        self.entry[1]
-    }
-
-    pub fn tile_index(&self) -> Byte {
-        self.entry[2]
+impl Sprite {
+    pub fn new(y: Byte, x: Byte, tile_index: Byte, attrs: Byte) -> Self {
+        Self {
+            y,
+            x,
+            tile_index,
+            attrs,
+        }
     }
 
     pub fn bg_window_over_sprite(&self) -> bool {
-        self.entry[3] & 0x80 != 0
+        self.attrs & 0x80 != 0
     }
 
     pub fn flip_y(&self) -> bool {
-        self.entry[3] & 0x40 != 0
+        self.attrs & 0x40 != 0
     }
 
     pub fn flip_x(&self) -> bool {
-        self.entry[3] & 0x20 != 0
+        self.attrs & 0x20 != 0
     }
 
     pub fn palette(&self) -> ObjectPalette {
-        if self.entry[3] & 0x10 != 0 {
+        if self.attrs & 0x10 != 0 {
             ObjectPalette::Obp1
         } else {
             ObjectPalette::Obp0
