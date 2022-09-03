@@ -405,8 +405,14 @@ impl Ppu {
                 .chunks_mut(4)
                 .enumerate()
             {
-                let color_id = (bit_value(pixel_2, 7 - (visible_column_start + i as Byte)) << 1)
-                    | bit_value(pixel_1, 7 - (visible_column_start + i as Byte));
+                let pixel_index = if sprite.flip_x() {
+                    visible_column_start + i as Byte
+                } else {
+                    7 - (visible_column_start + i as Byte)
+                };
+
+                let color_id =
+                    (bit_value(pixel_2, pixel_index) << 1) | bit_value(pixel_1, pixel_index);
                 // TODO: Sprite/BG priority and sprite transparent color
                 if color_id != 0b00 {
                     // Color ID 00 is transparent for sprites
