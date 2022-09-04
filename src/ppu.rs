@@ -358,7 +358,14 @@ impl Ppu {
         // Drawing in reverse will handle condition 2. For condition 1, the `get_sprites` function
         // should have sorted the sprites in increasing order of the X-coord if we are DMG mode
         for sprite in sprites.iter().rev() {
-            let sprite_tile_address = sprite.tile_index as Word * SIZEOF_TILE as Word + 0x8000;
+            // Sprites always use the 0x8000 unsigned addressing mode
+            let sprite_tile_address = match self.lcdc.sprite_height() {
+                SpriteHeight::Short => sprite.tile_index,
+                // Bit-0 of tile-index should be ignored for tall sprites
+                SpriteHeight::Tall => sprite.tile_index & 0xFE,
+            } as Word
+                * SIZEOF_TILE as Word
+                + TiledataAddressingMode::Unsigned as Word;
 
             // We offset LY by 16 to ease the following calculations and prevent overflow checks
             let offsetted_ly = self.ly + 16;
