@@ -158,7 +158,7 @@ impl Mbc1 {
     }
 
     fn effective_ram_address(&self, address: Word) -> usize {
-        let effective_address = if self.ram_banks() > 1 {
+        if self.ram_banks() > 1 {
             if self.ram_banking_mode {
                 0x2000 * self.ram_bank as usize + (address as usize - 0xA000)
             } else {
@@ -169,8 +169,7 @@ impl Mbc1 {
             // Only one bank of RAM exists either the full 8KB or 2KB (which requires
             // the % RAM_SIZE)
             (address as usize - 0xA000) % self.ram_size() as usize
-        };
-        effective_address
+        }
     }
 }
 

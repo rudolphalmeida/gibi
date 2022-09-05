@@ -230,9 +230,10 @@ impl Memory for Mmu {
     fn read(&self, address: Word) -> Byte {
         let value = if self.oam_dma_in_progress() {
             // Only HRAM is accessible during OAM DMA
-            match address {
-                HRAM_START..=HRAM_END => self.hram[address as usize - 0xFF80],
-                _ => 0xFF,
+            if (HRAM_START..=HRAM_END).contains(&address) {
+                self.hram[address as usize - 0xFF80]
+            } else {
+                0xFF
             }
         } else {
             self.raw_read(address)
@@ -246,9 +247,8 @@ impl Memory for Mmu {
         // TODO: This order might influence how TIMA updates
         if self.oam_dma_in_progress() {
             // Only HRAM is accessible during OAM DMA
-            match address {
-                HRAM_START..=HRAM_END => self.hram[address as usize - 0xFF80] = data,
-                _ => {}
+            if (HRAM_START..=HRAM_END).contains(&address) {
+                self.hram[address as usize - 0xFF80] = data;
             }
         } else {
             self.raw_write(address, data);

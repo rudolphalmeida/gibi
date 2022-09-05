@@ -1,21 +1,8 @@
-use once_cell::unsync::Lazy;
-
 pub(crate) type Byte = u8;
 pub(crate) type Word = u16;
 pub(crate) type Sbyte = i8;
 /// Machine-Cycles (m)
 pub(crate) type Cycles = u64;
-
-pub(crate) const HEX_LOOKUP: Lazy<Vec<String>> = Lazy::new(|| {
-    let mut lookup: Vec<String> = Vec::with_capacity(512);
-
-    for i in 0..=0xFF {
-        let repr = format!("{:#04X}", i);
-        lookup.push(repr);
-    }
-
-    lookup
-});
 
 /// Create a `Word` from two `Byte`s with the first argument
 /// as the most significant and the second argument as the
