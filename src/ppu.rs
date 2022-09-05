@@ -420,10 +420,15 @@ impl Ppu {
 
                 let color_id =
                     (bit_value(pixel_2, pixel_index) << 1) | bit_value(pixel_1, pixel_index);
-                // TODO: Sprite/BG priority and sprite transparent color
+                // Color ID 00 is transparent for sprites
                 if color_id != 0b00 {
-                    // Color ID 00 is transparent for sprites
-                    pixel.copy_from_slice(palette.actual_color_from_index(color_id));
+                    if sprite.bg_window_over_sprite() {
+                        if pixel == RGBA_WHITE {
+                            pixel.copy_from_slice(palette.actual_color_from_index(color_id));
+                        }
+                    } else {
+                        pixel.copy_from_slice(palette.actual_color_from_index(color_id));
+                    };
                 }
             }
         }
