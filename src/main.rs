@@ -1,5 +1,8 @@
+use std::collections::HashMap;
+
 use clap::Parser;
 
+use gibi::joypad::JoypadKeys;
 use sdl2::event::Event;
 use sdl2::keyboard::Keycode;
 use sdl2::pixels::{Color, PixelFormatEnum};
@@ -16,16 +19,6 @@ use crate::options::Options;
 
 mod options;
 
-// const _JOYPAD_KEY_MAP: [(JoypadKeys, VirtualKeyCode); 8] = [
-//     (JoypadKeys::Right, VirtualKeyCode::Right),
-//     (JoypadKeys::Left, VirtualKeyCode::Left),
-//     (JoypadKeys::Up, VirtualKeyCode::Up),
-//     (JoypadKeys::Down, VirtualKeyCode::Down),
-//     (JoypadKeys::A, VirtualKeyCode::Z),
-//     (JoypadKeys::B, VirtualKeyCode::X),
-//     (JoypadKeys::Select, VirtualKeyCode::N),
-//     (JoypadKeys::Start, VirtualKeyCode::M),
-// ];
 const TARGET_FPS: f32 = 60.0;
 
 fn main() {
@@ -68,6 +61,17 @@ fn main() {
         .report_interval_s(0.5) // report every half a second
         .build_with_target_rate(TARGET_FPS); // limit to 60.0 FPS if possible
 
+    let joypad_keymap: HashMap<Keycode, JoypadKeys> = HashMap::from([
+        (Keycode::Z, JoypadKeys::B),
+        (Keycode::X, JoypadKeys::A),
+        (Keycode::N, JoypadKeys::Select),
+        (Keycode::M, JoypadKeys::Start),
+        (Keycode::Down, JoypadKeys::Down),
+        (Keycode::Up, JoypadKeys::Up),
+        (Keycode::Left, JoypadKeys::Left),
+        (Keycode::Right, JoypadKeys::Right),
+    ]);
+
     let mut gameboy = Gameboy::new(rom, None);
     let mut pixels = vec![0x00; LCD_WIDTH as usize * LCD_HEIGHT as usize * 4];
 
@@ -76,11 +80,20 @@ fn main() {
 
         for event in event_pump.poll_iter() {
             match event {
-                Event::Quit { .. }
-                | Event::KeyDown {
-                    keycode: Some(Keycode::Escape),
-                    ..
-                } => break 'mainloop,
+                Event::Quit { .. } => break 'mainloop,
+                Event::KeyDown {
+                    keycode: Some(x), ..
+                } => match x {
+                    Keycode::Escape => break 'mainloop,
+                    y if joypad_keymap.contains_key(&y) => gameboy.keydown(joypad_keymap[&y]),
+                    _ => {}
+                },
+                Event::KeyUp {
+                    keycode: Some(x), ..
+                } => match x {
+                    y if joypad_keymap.contains_key(&y) => gameboy.keyup(joypad_keymap[&y]),
+                    _ => {}
+                },
                 _ => {}
             }
         }
