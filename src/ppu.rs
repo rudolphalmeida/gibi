@@ -295,7 +295,62 @@ impl Ppu {
         }
     }
 
-    fn render_window_line(&mut self) {}
+    fn render_window_line(&mut self) {
+        let palette = Palette::new(self.bgp);
+
+        let tileset_address = self.lcdc.bg_and_window_tiledata_area() as usize;
+        let tilemap_address = self.lcdc.window_tilemap_area() as usize;
+
+        // The first row of the window has not been reached yet or the window is placed to the
+        // extreme right outside the screen
+        if self.ly < self.wy && (self.wx - 7) as u32 >= LCD_WIDTH {
+            return;
+        }
+        // This is the value of the internal Window counter in the Gameboy hardware for this LY
+        let window_y = (self.ly - self.wy) as usize;
+
+        let window_x_start = if self.wx < 7 { 7 - self.wx } else { 0x00 } as usize;
+        let screen_x_start = self.wx.saturating_sub(7) as usize;
+
+        let screen_y = self.ly as usize;
+        // The window spans from the wx - 7 to the end of the scanline
+        let row_first_index = screen_y * LCD_WIDTH as usize * 4 + screen_x_start * 4;
+        let row_last_index = (screen_y + 1) * LCD_WIDTH as usize * 4 - 1;
+
+        for (window_index_x, pixel) in self.framebuffer[row_first_index..=row_last_index]
+            .chunks_mut(4)
+            .enumerate()
+        {
+            let window_x = window_x_start + window_index_x;
+
+            let tile_x = window_x / TILE_WIDTH_PX;
+            let tile_y = window_y / TILE_HEIGHT_PX;
+
+            let tile_pixel_x = window_x % TILE_WIDTH_PX;
+            let tile_pixel_y = window_y % TILE_HEIGHT_PX;
+
+            let tile_index = tile_y * TILES_PER_LINE + tile_x;
+            let tile_index_address = tilemap_address + tile_index;
+            let tile_id = self.vram[tile_index_address - VRAM_START as usize];
+
+            let tiledata_mem_offset = match self.lcdc.bg_and_window_tiledata_area() {
+                TiledataAddressingMode::Signed => {
+                    (tile_id as i8 as i16 + 128) as usize * SIZEOF_TILE
+                }
+                TiledataAddressingMode::Unsigned => tile_id as usize * SIZEOF_TILE,
+            };
+            let tiledata_line_offset = tile_pixel_y * 2;
+            let tile_line_data_start_address =
+                tileset_address + tiledata_mem_offset + tiledata_line_offset;
+
+            let pixel_1 = self.vram[tile_line_data_start_address - VRAM_START as usize];
+            let pixel_2 = self.vram[tile_line_data_start_address + 1 - VRAM_START as usize];
+
+            let color_id = (bit_value(pixel_2, 7 - tile_pixel_x as Byte) << 1)
+                | bit_value(pixel_1, 7 - tile_pixel_x as Byte);
+            pixel.copy_from_slice(palette.actual_color_from_index(color_id));
+        }
+    }
 
     fn draw_sprites_on_ly(&mut self) {
         let sprites = self.get_sprites_on_ly();
