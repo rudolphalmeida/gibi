@@ -71,6 +71,23 @@
             "sourceLanguages": [
                 "rust"
             ]
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Run executable 'gibi' with dmg_acid2.gb",
+            "program": "target/debug/gibi",
+            "args": [
+                "roms/dmg-acid2.gb",
+                "-s5"
+            ],
+            "cwd": "${workspaceFolder}",
+            "env": {
+                "RUST_LOG": "debug"
+            },
+            "sourceLanguages": [
+                "rust"
+            ]
         }
     ]
 }

@@ -303,7 +303,7 @@ impl Ppu {
 
         // The first row of the window has not been reached yet or the window is placed to the
         // extreme right outside the screen
-        if self.ly < self.wy && (self.wx - 7) as u32 >= LCD_WIDTH {
+        if self.ly < self.wy || self.wx as u32 >= LCD_WIDTH + 7 {
             return;
         }
         // This is the value of the internal Window counter in the Gameboy hardware for this LY
