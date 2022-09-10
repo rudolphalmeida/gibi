@@ -8,7 +8,7 @@
             "type": "lldb",
             "request": "launch",
             "name": "Run executable 'gibi' with Tetris.gb",
-            "program": "target/release/gibi",
+            "program": "target/debug/gibi",
             "args": [
                 "roms/Tetris.gb",
                 "-s5"
@@ -25,7 +25,7 @@
             "type": "lldb",
             "request": "launch",
             "name": "Run executable 'gibi' with SuperMarioLand.gb",
-            "program": "target/release/gibi",
+            "program": "target/debug/gibi",
             "args": [
                 "roms/SuperMarioLand.gb",
                 "-s5"
@@ -42,7 +42,7 @@
             "type": "lldb",
             "request": "launch",
             "name": "Run executable 'gibi' with SuperMarioLand2.gb",
-            "program": "target/release/gibi",
+            "program": "target/debug/gibi",
             "args": [
                 "roms/SuperMarioLand2.gb",
                 "-s5"
@@ -59,7 +59,7 @@
             "type": "lldb",
             "request": "launch",
             "name": "Run executable 'gibi' with LinksAwakening.gb",
-            "program": "target/release/gibi",
+            "program": "target/debug/gibi",
             "args": [
                 "roms/LinksAwakening.gb",
                 "-s5"

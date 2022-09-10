@@ -89,6 +89,7 @@ pub(crate) struct Ppu {
     lyc: Byte,
     wy: Byte,
     wx: Byte,
+    window_internal_counter: Option<Byte>,
 
     bgp: Byte,
     obp0: Byte,
@@ -122,6 +123,7 @@ impl Ppu {
             lyc: 0x00,
             wy: 0x00,
             wx: 0x00,
+            window_internal_counter: None,
             bgp: 0x00,
             obp0: 0x00,
             obp1: 0x00,
@@ -187,6 +189,9 @@ impl Ppu {
 
                     if self.ly == LCD_HEIGHT as Byte {
                         self.stat.set_mode(LcdStatus::Vblank);
+
+                        // Reset window internal counter
+                        self.window_internal_counter = None;
 
                         self.interrupts
                             .borrow_mut()
@@ -307,7 +312,18 @@ impl Ppu {
             return;
         }
         // This is the value of the internal Window counter in the Gameboy hardware for this LY
-        let window_y = (self.ly - self.wy) as usize;
+        let window_y = match self.window_internal_counter {
+            Some(x) => {
+                self.window_internal_counter = Some(x + 1);
+                x
+            }
+            None => {
+                self.window_internal_counter = Some(1);
+                0
+            }
+        } as usize;
+
+        // let window_y = (self.ly - self.wy) as usize;
 
         let window_x_start = if self.wx < 7 { 7 - self.wx } else { 0x00 } as usize;
         let screen_x_start = self.wx.saturating_sub(7) as usize;
