@@ -137,23 +137,24 @@ impl Ppu {
             self.dots_in_line += 1;
 
             if self.stat.mode() == LcdStatus::Vblank {
-                if self.dots_in_line == SCANLINE_DOTS {
+                // Transition to LY 0 and call interrupt early in Line 153. This is a Gameboy
+                // hardware bug
+                if self.ly == 153 {
+                    if self.dots_in_line > 3 {
+                        self.ly = 0x00;
+
+                        self.interrupts
+                            .borrow_mut()
+                            .request_interrupt(InterruptType::LcdStat);
+                    }
+                } else if self.dots_in_line == SCANLINE_DOTS && self.ly == 0x00 {
+                    // We have completed the Line153/0 VBlank and we move into the new frames line
+                    // 0
+                    self.dots_in_line = 0x00;
+                    self.stat.set_mode(LcdStatus::OamSearch);
+                } else if self.dots_in_line == SCANLINE_DOTS {
                     self.ly += 1;
                     self.dots_in_line = 0x00;
-
-                    if self.ly == TOTAL_SCANLINES as Byte {
-                        self.ly = 0x00;
-                        self.stat.set_mode(LcdStatus::OamSearch);
-
-                        if self
-                            .stat
-                            .is_stat_interrupt_source_enabled(LcdStatSource::Mode2Oam)
-                        {
-                            self.interrupts
-                                .borrow_mut()
-                                .request_interrupt(InterruptType::LcdStat);
-                        }
-                    }
                 }
             } else {
                 // In Mode 2
@@ -484,6 +485,7 @@ impl Ppu {
         // scanline
         for (i, sprite) in self.oam.chunks(4).enumerate() {
             let screen_y_start = sprite[0].saturating_sub(16);
+            // TODO: Fix overflow on screen_y_end calculation
             let screen_y_end = (sprite[0] + sprite_height).saturating_sub(16);
 
             // We don't check if the sprite is hidden below the frame because this function should
