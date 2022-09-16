@@ -140,7 +140,7 @@ impl Ppu {
                 // Transition to LY 0 and call interrupt early in Line 153. This is a Gameboy
                 // hardware bug
                 if self.ly == 153 {
-                    if self.dots_in_line > 3 {
+                    if self.dots_in_line > 15 {
                         self.ly = 0x00;
 
                         self.interrupts
@@ -155,12 +155,25 @@ impl Ppu {
                 } else if self.dots_in_line == SCANLINE_DOTS {
                     self.ly += 1;
                     self.dots_in_line = 0x00;
+
+                    self.stat.set_ly_lyc_state(self.ly == self.lyc);
+
+                    if self.stat.lyc_ly_equal()
+                        && self
+                            .stat
+                            .is_stat_interrupt_source_enabled(LcdStatSource::LycLyEqual)
+                    {
+                        self.interrupts
+                            .borrow_mut()
+                            .request_interrupt(InterruptType::LcdStat);
+                    }
                 }
             } else {
                 // In Mode 2
                 if self.dots_in_line == OAM_SEARCH_DOTS {
                     self.stat.set_mode(LcdStatus::Rendering);
                 } else if self.dots_in_line == RENDERING_DOTS {
+                    self.render_line();
                     self.stat.set_mode(LcdStatus::Hblank);
                     if self
                         .stat
@@ -171,8 +184,6 @@ impl Ppu {
                             .request_interrupt(InterruptType::LcdStat);
                     }
                 } else if self.dots_in_line == SCANLINE_DOTS {
-                    self.render_line();
-
                     self.ly += 1;
                     self.dots_in_line = 0;
 
@@ -546,7 +557,10 @@ impl Memory for Ppu {
             SCY_ADDRESS => self.scy = data,
             SCX_ADDRESS => self.scx = data,
             LY_ADDRESS => {}
-            LYC_ADDRESS => self.lyc = data,
+            LYC_ADDRESS => {
+                self.lyc = data;
+                self.stat.set_ly_lyc_state(self.ly == self.lyc);
+            }
             BGP_ADDRESS => self.bgp = data,
             OBP0_ADDRESS => self.obp0 = data,
             OBP1_ADDRESS => self.obp1 = data,
