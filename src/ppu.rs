@@ -139,14 +139,12 @@ impl Ppu {
             if self.stat.mode() == LcdStatus::Vblank {
                 // Transition to LY 0 and call interrupt early in Line 153. This is a Gameboy
                 // hardware bug
-                if self.ly == 153 {
-                    if self.dots_in_line > 15 {
-                        self.ly = 0x00;
+                if self.ly == 153 && self.dots_in_line > 15 {
+                    self.ly = 0x00;
 
-                        self.interrupts
-                            .borrow_mut()
-                            .request_interrupt(InterruptType::LcdStat);
-                    }
+                    self.interrupts
+                        .borrow_mut()
+                        .request_interrupt(InterruptType::LcdStat);
                 } else if self.dots_in_line == SCANLINE_DOTS && self.ly == 0x00 {
                     // We have completed the Line153/0 VBlank and we move into the new frames line
                     // 0
