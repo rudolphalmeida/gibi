@@ -79,16 +79,17 @@ const VBLANK_DOTS: Dots = VBLANK_SCANLINES as Dots * SCANLINE_DOTS;
 pub(crate) struct Ppu {
     vram: Box<[Byte; VRAM_SIZE]>,
     oam: Box<[Byte; OAM_SIZE]>,
+
     lcdc: Lcdc,
     stat: LcdStat,
-    dots_in_line: Dots,
-
     scy: Byte,
     scx: Byte,
     ly: Byte,
     lyc: Byte,
     wy: Byte,
     wx: Byte,
+
+    dots_in_line: Dots,
     window_internal_counter: Option<Byte>,
 
     bgp: Byte,
@@ -136,98 +137,110 @@ impl Ppu {
         for _ in 0..DOTS_PER_TICK {
             self.dots_in_line += 1;
 
-            if self.stat.mode() == LcdStatus::Vblank {
-                // Transition to LY 0 and call interrupt early in Line 153. This is a Gameboy
-                // hardware bug
-                if self.ly == 153 && self.dots_in_line > 15 {
-                    self.ly = 0x00;
+            match self.stat.mode() {
+                LcdStatus::OamSearch if self.dots_in_line == OAM_SEARCH_DOTS => {
+                    let old_stat = self.stat.clone();
+                    log::debug!("Beginning rendering");
+                    self.stat.set_mode(LcdStatus::Rendering);
 
-                    self.interrupts
-                        .borrow_mut()
-                        .request_interrupt(InterruptType::LcdStat);
-                } else if self.dots_in_line == SCANLINE_DOTS && self.ly == 0x00 {
-                    // We have completed the Line153/0 VBlank and we move into the new frames line
-                    // 0
-                    self.dots_in_line = 0x00;
-                    self.stat.set_mode(LcdStatus::OamSearch);
-                } else if self.dots_in_line == SCANLINE_DOTS {
-                    self.ly += 1;
-                    self.dots_in_line = 0x00;
-
-                    self.stat.set_ly_lyc_state(self.ly == self.lyc);
-
-                    if self.stat.lyc_ly_equal()
-                        && self
-                            .stat
-                            .is_stat_interrupt_source_enabled(LcdStatSource::LycLyEqual)
-                    {
+                    if !old_stat.is_stat_irq_asserted() && self.stat.is_stat_irq_asserted() {
                         self.interrupts
                             .borrow_mut()
                             .request_interrupt(InterruptType::LcdStat);
                     }
                 }
-            } else {
-                // In Mode 2
-                if self.dots_in_line == OAM_SEARCH_DOTS {
-                    self.stat.set_mode(LcdStatus::Rendering);
-                } else if self.dots_in_line == RENDERING_DOTS {
+                LcdStatus::Rendering if self.dots_in_line == RENDERING_DOTS => {
                     self.render_line();
+                    let old_stat = self.stat.clone();
                     self.stat.set_mode(LcdStatus::Hblank);
-                    if self
-                        .stat
-                        .is_stat_interrupt_source_enabled(LcdStatSource::Mode0Hblank)
-                    {
+
+                    if !old_stat.is_stat_irq_asserted() && self.stat.is_stat_irq_asserted() {
                         self.interrupts
                             .borrow_mut()
                             .request_interrupt(InterruptType::LcdStat);
                     }
-                } else if self.dots_in_line == SCANLINE_DOTS {
+                }
+                LcdStatus::Hblank if self.dots_in_line == SCANLINE_DOTS => {
                     self.ly += 1;
                     self.dots_in_line = 0;
+                    let old_stat = self.stat.clone();
 
-                    self.stat.set_ly_lyc_state(self.ly == self.lyc);
-
-                    if self.stat.lyc_ly_equal()
-                        && self
-                            .stat
-                            .is_stat_interrupt_source_enabled(LcdStatSource::LycLyEqual)
-                    {
-                        self.interrupts
-                            .borrow_mut()
-                            .request_interrupt(InterruptType::LcdStat);
-                    }
-
-                    if self.ly == LCD_HEIGHT as Byte {
-                        self.stat.set_mode(LcdStatus::Vblank);
-
-                        // Reset window internal counter
+                    let next_mode = if self.ly == LCD_HEIGHT as Byte {
+                        // Going into VBlank
                         self.window_internal_counter = None;
+
+                        if !old_stat.is_stat_irq_asserted()
+                            && self
+                                .stat
+                                .is_stat_interrupt_source_enabled(LcdStatSource::Mode1Vblank)
+                        {
+                            self.interrupts
+                                .borrow_mut()
+                                .request_interrupt(InterruptType::LcdStat);
+                        }
 
                         self.interrupts
                             .borrow_mut()
                             .request_interrupt(InterruptType::Vblank);
 
-                        if self
-                            .stat
-                            .is_stat_interrupt_source_enabled(LcdStatSource::Mode1Vblank)
-                        {
-                            self.interrupts
-                                .borrow_mut()
-                                .request_interrupt(InterruptType::LcdStat);
-                        }
+                        LcdStatus::Vblank
                     } else {
-                        self.stat.set_mode(LcdStatus::OamSearch);
+                        // Going into another LCD line
+                        LcdStatus::OamSearch
+                    };
 
-                        if self
-                            .stat
-                            .is_stat_interrupt_source_enabled(LcdStatSource::Mode2Oam)
-                        {
-                            self.interrupts
-                                .borrow_mut()
-                                .request_interrupt(InterruptType::LcdStat);
-                        }
+                    self.stat.set_mode(next_mode);
+                    if !old_stat.is_stat_irq_asserted() && self.stat.is_stat_irq_asserted() {
+                        self.interrupts
+                            .borrow_mut()
+                            .request_interrupt(InterruptType::LcdStat);
+                    }
+
+                    // The LY-LYC compare interrupt is actually delayed by 1 CPU cycle
+                    let old_stat = self.stat.clone();
+                    self.stat.set_ly_lyc_state(self.ly == self.lyc);
+                    if !old_stat.is_stat_irq_asserted() && self.stat.is_stat_irq_asserted() {
+                        self.interrupts
+                            .borrow_mut()
+                            .request_interrupt(InterruptType::LcdStat);
                     }
                 }
+                LcdStatus::Vblank if self.ly == 153 && self.dots_in_line == 8 => {
+                    self.ly = 0;
+
+                    let old_stat = self.stat.clone();
+                    self.stat.set_ly_lyc_state(self.ly == self.lyc);
+                    if !old_stat.is_stat_irq_asserted() && self.stat.is_stat_irq_asserted() {
+                        self.interrupts
+                            .borrow_mut()
+                            .request_interrupt(InterruptType::LcdStat);
+                    }
+                }
+                LcdStatus::Vblank if self.ly == 0 && self.dots_in_line == SCANLINE_DOTS => {
+                    let old_stat = self.stat.clone();
+                    self.stat.set_mode(LcdStatus::OamSearch);
+                    self.dots_in_line = 0;
+
+                    self.stat.set_ly_lyc_state(self.ly == self.lyc);
+                    if !old_stat.is_stat_irq_asserted() && self.stat.is_stat_irq_asserted() {
+                        self.interrupts
+                            .borrow_mut()
+                            .request_interrupt(InterruptType::LcdStat);
+                    }
+                }
+                LcdStatus::Vblank if self.dots_in_line == SCANLINE_DOTS => {
+                    self.ly += 1;
+                    self.dots_in_line = 0;
+
+                    let old_stat = self.stat.clone();
+                    self.stat.set_ly_lyc_state(self.ly == self.lyc);
+                    if !old_stat.is_stat_irq_asserted() && self.stat.is_stat_irq_asserted() {
+                        self.interrupts
+                            .borrow_mut()
+                            .request_interrupt(InterruptType::LcdStat);
+                    }
+                }
+                _ => {}
             }
         }
     }
@@ -728,6 +741,19 @@ impl LcdStat {
             self.0 |= LYC_LY_EQUAL;
         } else {
             self.0 &= !LYC_LY_EQUAL;
+        }
+    }
+
+    fn is_stat_irq_asserted(&self) -> bool {
+        if self.is_stat_interrupt_source_enabled(LcdStatSource::LycLyEqual) && self.lyc_ly_equal() {
+            return true;
+        }
+
+        match self.mode() {
+            LcdStatus::Hblank => self.is_stat_interrupt_source_enabled(LcdStatSource::Mode0Hblank),
+            LcdStatus::Vblank => self.is_stat_interrupt_source_enabled(LcdStatSource::Mode1Vblank),
+            LcdStatus::OamSearch => self.is_stat_interrupt_source_enabled(LcdStatSource::Mode2Oam),
+            LcdStatus::Rendering => false,
         }
     }
 }
