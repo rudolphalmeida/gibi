@@ -140,7 +140,6 @@ impl Ppu {
             match self.stat.mode() {
                 LcdStatus::OamSearch if self.dots_in_line == OAM_SEARCH_DOTS => {
                     let old_stat = self.stat.clone();
-                    log::debug!("Beginning rendering");
                     self.stat.set_mode(LcdStatus::Rendering);
 
                     if !old_stat.is_stat_irq_asserted() && self.stat.is_stat_irq_asserted() {
