@@ -439,8 +439,10 @@ impl Ppu {
             let (visible_column_start, visible_column_end, screen_x_start) = if sprite.x < 8 {
                 (8 - sprite.x, 7, 0)
             } else if sprite.x > 160 {
-                (0, sprite.x - 160 - 1, sprite.x - 8)
+                // The sprite is partially hidden on the right
+                (0, 168 - sprite.x, sprite.x - 8)
             } else {
+                // The sprite is entirely visible
                 (0, 7, sprite.x - 8)
             };
 
