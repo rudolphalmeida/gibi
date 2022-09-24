@@ -95,10 +95,10 @@ impl Memory for Timer {
 
 fn tima_bit_position(tac: Byte) -> Word {
     match tac & 0b11 {
-        0 => (1 << 9),
-        1 => (1 << 3),
-        2 => (1 << 5),
-        3 => (1 << 7),
+        0 => 1 << 9,
+        1 => 1 << 3,
+        2 => 1 << 5,
+        3 => 1 << 7,
         _ => panic!("This is not possible"),
     }
 }
