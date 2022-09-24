@@ -60,10 +60,6 @@ impl Cpu {
     }
 
     fn check_for_pending_interrupts(&self) -> bool {
-        if !self.ime {
-            return false;
-        }
-
         let intf = self.mmu.borrow().raw_read(INTERRUPT_FLAG_ADDRESS);
         let inte = self.mmu.borrow().raw_read(INTERRUPT_ENABLE_ADDRESS);
 
@@ -847,7 +843,7 @@ impl Cpu {
     fn ei(&mut self, _: Byte) {
         // The effect of EI is delayed by one m-cycle
         // TODO: Check behaviour if EI is followed by a HALT
-        self.execute();
+        self.execute_opcode();
         self.ime = true;
     }
 
