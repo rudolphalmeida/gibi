@@ -415,7 +415,7 @@ impl Ppu {
             let offsetted_ly = self.ly + 16;
 
             let sprite_line_offset = if sprite.flip_y() {
-                sprite_height - (offsetted_ly - sprite.y)
+                sprite_height - (offsetted_ly - sprite.y) - 1
             } else {
                 offsetted_ly - sprite.y
             };
