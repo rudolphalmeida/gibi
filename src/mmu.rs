@@ -220,6 +220,10 @@ impl Mmu {
             _ => log::error!("Unknown address to Mmu::write {:#06X}", address),
         }
     }
+
+    pub fn save_ram(&self) -> Option<&Vec<Byte>> {
+        self.cart.save_ram()
+    }
 }
 
 impl Memory for Mmu {

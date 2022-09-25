@@ -4,7 +4,11 @@ use crate::{
     utils::{Byte, Word},
 };
 
-pub(crate) trait Cartridge: Memory + Mbc {}
+pub(crate) trait Savable {
+    fn savable(&self) -> bool;
+    fn save_ram(&self) -> Option<&Vec<Byte>>;
+}
+pub(crate) trait Cartridge: Memory + Mbc + Savable {}
 
 const CARTRIDGE_TYPE_ADDRESS: Word = 0x147;
 const ROM_SIZE_ADDRESS: Word = 0x148;
@@ -25,7 +29,7 @@ pub const CART_RAM_END: Word = 0xBFFF;
 pub(crate) fn init_mbc_from_rom(rom: Vec<Byte>, ram: Option<Vec<Byte>>) -> Box<dyn Cartridge> {
     match rom[CARTRIDGE_TYPE_ADDRESS as usize] {
         0x00 => Box::new(NoMbc::new(rom)),
-        0x01 | 0x02 | 0x03 => Box::new(Mbc1::new(rom, ram)),
+        x @ (0x01 | 0x02 | 0x03) => Box::new(Mbc1::new(rom, ram, x == 0x03)),
         // TODO: More MBCs
         // TODO: Remove `panic`s
         _ => panic!(
@@ -109,6 +113,16 @@ impl Memory for NoMbc {
     }
 }
 
+impl Savable for NoMbc {
+    fn savable(&self) -> bool {
+        false
+    }
+
+    fn save_ram(&self) -> Option<&Vec<Byte>> {
+        None
+    }
+}
+
 impl Cartridge for NoMbc {}
 // End-ROM Only MBC---------------------------------------------------------------------------------
 
@@ -124,10 +138,12 @@ struct Mbc1 {
     ram_bank: Byte,
     ram_enabled: bool,
     ram_banking_mode: bool,
+
+    savable: bool,
 }
 
 impl Mbc1 {
-    pub fn new(rom: Vec<Byte>, mut ram: Option<Vec<Byte>>) -> Self {
+    pub fn new(rom: Vec<Byte>, mut ram: Option<Vec<Byte>>, savable: bool) -> Self {
         let rom_bank = 0x01;
         let ram_bank = 0x00;
         let ram_enabled = false;
@@ -144,6 +160,17 @@ impl Mbc1 {
                 ram_size
             );
             ram = Some(vec![0xFF; ram_size as usize]);
+        } else {
+            if let Some(r) = ram.as_ref() {
+                if r.len() != ram_size as usize {
+                    log::error!(
+                        "Provided RAM size {} does not match what was expected {}",
+                        r.len(),
+                        ram_size
+                    );
+                    ram = Some(vec![0xFF; ram_size as usize]);
+                }
+            }
         }
 
         Mbc1 {
@@ -154,6 +181,7 @@ impl Mbc1 {
             ram_bank,
             ram_enabled,
             ram_banking_mode,
+            savable,
         }
     }
 
@@ -267,6 +295,16 @@ impl Memory for Mbc1 {
                 self.name()
             ),
         }
+    }
+}
+
+impl Savable for Mbc1 {
+    fn savable(&self) -> bool {
+        self.savable
+    }
+
+    fn save_ram(&self) -> Option<&Vec<Byte>> {
+        self.ram.as_ref()
     }
 }
 

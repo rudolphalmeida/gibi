@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::path::Path;
 
 use clap::Parser;
 
@@ -25,8 +26,19 @@ fn main() {
     env_logger::init();
 
     let options = Options::parse();
-    let rom = std::fs::read(options.rom_file.as_str()).unwrap();
+    let rom_file_path = Path::new(&options.rom_file);
+    let save_file_path = rom_file_path.with_extension("sav");
+
+    let rom = std::fs::read(rom_file_path).unwrap();
     log::info!("Loaded ROM file: {:?}", options.rom_file);
+
+    let ram = if save_file_path.exists() {
+        log::info!("Found a save file for ROM. Trying to load");
+        std::fs::read(&save_file_path).ok()
+    } else {
+        log::info!("Did not find a save file for ROM");
+        None
+    };
 
     // Initialize GUI, and pixel buffers
     let sdl = sdl2::init().unwrap();
@@ -72,7 +84,7 @@ fn main() {
         (Keycode::Right, JoypadKeys::Right),
     ]);
 
-    let mut gameboy = Gameboy::new(rom, None);
+    let mut gameboy = Gameboy::new(rom, ram);
     let mut pixels = vec![0x00; LCD_WIDTH as usize * LCD_HEIGHT as usize * 4];
 
     'mainloop: loop {
@@ -110,4 +122,7 @@ fn main() {
 
         loop_helper.loop_sleep();
     }
+
+    log::info!("Saving battery RAM if any");
+    gameboy.save(save_file_path).unwrap();
 }

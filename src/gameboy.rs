@@ -1,4 +1,6 @@
+use std::path::PathBuf;
 use std::{cell::RefCell, rc::Rc};
+use std::{fs, io};
 
 use crate::apu::Apu;
 use crate::interrupts::InterruptHandler;
@@ -79,5 +81,13 @@ impl Gameboy {
 
     pub fn keyup(&mut self, key: JoypadKeys) {
         self.joypad.borrow_mut().keyup(key);
+    }
+
+    pub fn save(&self, path: PathBuf) -> io::Result<String> {
+        if let Some(ram) = self.mmu.borrow().save_ram() {
+            fs::write(path, ram).map(|_| "Save RAM to file".into())
+        } else {
+            Ok("Game does not have battery-backed saves".into())
+        }
     }
 }
