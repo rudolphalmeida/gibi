@@ -77,8 +77,8 @@ const TOTAL_SCANLINES: u32 = LCD_HEIGHT + VBLANK_SCANLINES;
 const VBLANK_DOTS: Dots = VBLANK_SCANLINES as Dots * SCANLINE_DOTS;
 
 pub(crate) struct Ppu {
-    vram: Box<[Byte; VRAM_SIZE]>,
-    oam: Box<[Byte; OAM_SIZE]>,
+    vram: [Byte; VRAM_SIZE],
+    oam: [Byte; OAM_SIZE],
 
     lcdc: Lcdc,
     stat: LcdStat,
@@ -98,19 +98,19 @@ pub(crate) struct Ppu {
 
     interrupts: Rc<RefCell<InterruptHandler>>,
 
-    framebuffer: Vec<Byte>,
+    framebuffer: [Byte; (LCD_WIDTH * LCD_HEIGHT * 4) as usize],
 }
 
 impl Ppu {
     pub fn new(interrupts: Rc<RefCell<InterruptHandler>>) -> Self {
-        let vram = Box::new([0xFF; VRAM_SIZE]);
-        let oam = Box::new([0xFF; OAM_SIZE]);
+        let vram = [0xFF; VRAM_SIZE];
+        let oam = [0xFF; OAM_SIZE];
         let lcdc = Default::default();
         let mut stat: LcdStat = Default::default();
         stat.set_mode(LcdStatus::OamSearch);
         let dots_in_line = Default::default();
         // We are using a RGBA format pixel buffer
-        let framebuffer = Vec::from([0x00; (LCD_WIDTH * LCD_HEIGHT * 4) as usize]);
+        let framebuffer = [0x00; (LCD_WIDTH * LCD_HEIGHT * 4) as usize];
 
         Ppu {
             vram,
@@ -779,10 +779,10 @@ impl GameboyColorShade {
 }
 
 // TODO: Make this configurable by the GUI
-const RGBA_WHITE: [Byte; 4] = [0x9B, 0xBC, 0x0F, 0xFF];
-const RGBA_LIGHT_GRAY: [Byte; 4] = [0x8B, 0xAC, 0x0F, 0xFF];
-const RGBA_DARK_GRAY: [Byte; 4] = [0x30, 0x62, 0x30, 0xFF];
-const RGBA_BLACK: [Byte; 4] = [0x0F, 0x38, 0x0F, 0xFF];
+const RGBA_WHITE: [Byte; 4] = [0xE0, 0xF8, 0xD0, 0xFF];
+const RGBA_LIGHT_GRAY: [Byte; 4] = [0x88, 0xC0, 0x70, 0xFF];
+const RGBA_DARK_GRAY: [Byte; 4] = [0x34, 0x68, 0x56, 0xFF];
+const RGBA_BLACK: [Byte; 4] = [0x08, 0x18, 0x20, 0xFF];
 
 fn map_to_actual_color(shade: GameboyColorShade) -> &'static [Byte; 4] {
     match shade {

@@ -32,7 +32,6 @@ pub(crate) fn bit_value(value: Byte, index: Byte) -> Byte {
 /// Calculate the minimum number of bits required to store a value
 pub(crate) fn min_number_of_bits(mut value: Byte) -> Byte {
     let mut count = 0;
-    println!("{:b}", value);
     while value > 0 {
         count += 1;
         value >>= 1;

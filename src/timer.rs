@@ -40,18 +40,18 @@ impl Timer {
     }
 
     pub fn tick(&mut self) {
-        if self.tima_overflowed_last_cycle {
-            self.tima = self.tma;
-
-            self.interrupts
-                .borrow_mut()
-                .request_interrupt(InterruptType::Timer);
-
-            self.tima_overflowed_last_cycle = false;
-        }
-
         for _ in 0..4 {
             self.div = self.div.wrapping_add(1);
+
+            if self.tima_overflowed_last_cycle {
+                self.tima = self.tma;
+
+                self.interrupts
+                    .borrow_mut()
+                    .request_interrupt(InterruptType::Timer);
+
+                self.tima_overflowed_last_cycle = false;
+            }
 
             let tima_increment_bit = self.div & tima_bit_position(self.tac) != 0;
             let timer_enabled_bit = self.tac & 0b100 != 0;

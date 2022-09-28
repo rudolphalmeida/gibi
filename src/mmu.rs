@@ -57,8 +57,8 @@ pub(crate) struct Mmu {
     pub(crate) cart: Box<dyn Cartridge>,
     ppu: Rc<RefCell<Ppu>>,
     apu: Rc<RefCell<Apu>>,
-    wram: Vec<Byte>,
-    hram: Vec<Byte>,
+    wram: [Byte; WRAM_BANK_SIZE * 2],
+    hram: [Byte; HRAM_SIZE],
     joypad: Rc<RefCell<Joypad>>,
     serial: Serial,
     timer: RefCell<Timer>,
@@ -82,8 +82,8 @@ impl Mmu {
         interrupts: Rc<RefCell<InterruptHandler>>,
     ) -> Self {
         let cart = init_mbc_from_rom(rom, ram);
-        let wram = vec![0x00; WRAM_BANK_SIZE * 2]; // 8KB
-        let hram = vec![0x00; HRAM_SIZE];
+        let wram = [0x00; WRAM_BANK_SIZE * 2]; // 8KB
+        let hram = [0x00; HRAM_SIZE];
         let serial = Serial::new();
         let timer = RefCell::new(Timer::new(Rc::clone(&interrupts)));
         let cpu_m_cycles = Cell::new(0);
