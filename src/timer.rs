@@ -19,7 +19,11 @@ pub(crate) struct Timer {
     tac: Byte,
 
     previous_tima_inc_result: bool,
-    tima_overflowed_last_cycle: bool,
+    /// The TIMA overflow reset with TMA is delayed by one m-cycle or 4 t-cycles.
+    /// Since we tick the timer one m-cycle at a time we keep track of which
+    /// t-cycle within that m-cycle TIMA overflowed and exactly 4 t-cycles later
+    /// reset it with TMA
+    tima_overflowed_last_cycle: Option<i32>,
 
     interrupts: Rc<RefCell<InterruptHandler>>,
 }
@@ -33,24 +37,31 @@ impl Timer {
             tac: 0x00,
 
             previous_tima_inc_result: false,
-            tima_overflowed_last_cycle: false,
+            tima_overflowed_last_cycle: None,
 
             interrupts,
         }
     }
 
     pub fn tick(&mut self) {
-        for _ in 0..4 {
+        let prev_i = if let Some(i) = self.tima_overflowed_last_cycle {
+            i
+        } else {
+            -1
+        };
+
+        for i in 0..4 {
             self.div = self.div.wrapping_add(1);
 
-            if self.tima_overflowed_last_cycle {
+            // Reset TIMA if it overflowed exactly 4 t-cycles ago
+            if prev_i == i {
                 self.tima = self.tma;
 
                 self.interrupts
                     .borrow_mut()
                     .request_interrupt(InterruptType::Timer);
 
-                self.tima_overflowed_last_cycle = false;
+                self.tima_overflowed_last_cycle = None;
             }
 
             let tima_increment_bit = self.div & tima_bit_position(self.tac) != 0;
@@ -62,7 +73,9 @@ impl Timer {
                 let (inc_tima, overflow) = self.tima.overflowing_add(1);
                 self.tima = inc_tima;
                 if overflow {
-                    self.tima_overflowed_last_cycle = true;
+                    self.tima_overflowed_last_cycle = Some(i);
+                    // TIMA reads 0x00 for the 4 t-cycles before it is reset
+                    self.tima = 0x00;
                 }
             }
 
