@@ -232,6 +232,7 @@ impl Memory for Mmu {
     /// using `tick` inside it. We want the other components to keep up with the
     /// CPU during each memory access
     fn read(&self, address: Word) -> Byte {
+        self.tick();
         let value = if self.oam_dma_in_progress() {
             // Only HRAM is accessible during OAM DMA
             if (HRAM_START..=HRAM_END).contains(&address) {
@@ -243,12 +244,12 @@ impl Memory for Mmu {
             self.raw_read(address)
         };
 
-        self.tick();
         value
     }
 
     fn write(&mut self, address: Word, data: Byte) {
         // TODO: This order might influence how TIMA updates
+        self.tick();
         if self.oam_dma_in_progress() {
             // Only HRAM is accessible during OAM DMA
             if (HRAM_START..=HRAM_END).contains(&address) {
@@ -257,7 +258,5 @@ impl Memory for Mmu {
         } else {
             self.raw_write(address, data);
         };
-
-        self.tick();
     }
 }
