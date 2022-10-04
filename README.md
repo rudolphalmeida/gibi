@@ -1,6 +1,6 @@
 # GiBi - Game Boy Emulator
 
-This is a WIP Game Boy emulator. Currently, is is missing audio, Game Boy Color,
+This is a WIP Game Boy emulator. Currently, it is missing audio, Game Boy Color,
 and only No MBC and MBC1 carts are supported. There are also a few bugs in the
 PPU and timings.
 
@@ -26,7 +26,7 @@ On macOS:
 brew install sdl2
 ```
 
-It should work on Windows as well. Download the SDL2 developer package and place the files according to the documentation. Place the `SDL2.dll` in the project folder next to the `Cargo.tom` file.
+It should work on Windows as well. Download the SDL2 developer package and place the files according to the documentation. Place the `SDL2.dll` in the project folder next to the `Cargo.toml` file.
 
 To run use:
 
