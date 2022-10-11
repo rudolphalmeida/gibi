@@ -30,6 +30,12 @@ pub(crate) fn init_mbc_from_rom(rom: Vec<Byte>, ram: Option<Vec<Byte>>) -> Box<d
     match rom[CARTRIDGE_TYPE_ADDRESS as usize] {
         0x00 => Box::new(NoMbc::new(rom)),
         x @ (0x01 | 0x02 | 0x03) => Box::new(Mbc1::new(rom, ram, x == 0x03)),
+        x @ (0x19 | 0x1A | 0x1B | 0x1C | 0x1D | 0x1E) => Box::new(Mbc5::new(
+            rom,
+            ram,
+            x == 0x1B || x == 0x1E,
+            x == 0x1C || x == 0x1D || x == 0x1E,
+        )),
         // TODO: More MBCs
         // TODO: Remove `panic`s
         _ => panic!(
@@ -311,6 +317,157 @@ impl Savable for Mbc1 {
 impl Cartridge for Mbc1 {}
 
 // END-MBC1 ----------------------------------------------------------------------------------------
+
+// MBC5 --------------------------------------------------------------------------------------------
+
+struct Mbc5 {
+    rom: Vec<Byte>,
+    ram: Option<Vec<Byte>>,
+
+    rom_bank: Word,
+
+    ram_bank: Byte,
+    ram_enabled: bool,
+
+    savable: bool,
+
+    has_rumble: bool,
+    rumble_active: bool,
+}
+
+impl Mbc5 {
+    pub fn new(
+        rom: Vec<Byte>,
+        mut ram: Option<Vec<Byte>>,
+        savable: bool,
+        has_rumble: bool,
+    ) -> Self {
+        let rom_bank = 0x01;
+        let ram_bank = 0x00;
+        let ram_enabled = false;
+        let rumble_active = false;
+
+        let ram_size = ram_size(rom[RAM_SIZE_ADDRESS as usize]).0;
+        if ram.is_none() && ram_size > 0 {
+            log::info!(
+                "No RAM provided. Initializing RAM of size {} bytes",
+                ram_size
+            );
+            ram = Some(vec![0xFF; ram_size as usize]);
+        } else {
+            if let Some(r) = ram.as_ref() {
+                if r.len() != ram_size as usize {
+                    log::error!(
+                        "Provided RAM size {} does not match what was expected {}",
+                        r.len(),
+                        ram_size
+                    );
+                    ram = Some(vec![0xFF; ram_size as usize]);
+                }
+            }
+        }
+
+        Mbc5 {
+            rom,
+            ram,
+            rom_bank,
+            ram_bank,
+            ram_enabled,
+            savable,
+            has_rumble,
+            rumble_active,
+        }
+    }
+}
+
+impl Mbc for Mbc5 {
+    fn name(&self) -> String {
+        "MBC5".into()
+    }
+
+    fn rom(&self) -> &Vec<Byte> {
+        &self.rom
+    }
+
+    fn ram(&self) -> Option<&Vec<Byte>> {
+        self.ram.as_ref()
+    }
+}
+
+impl Memory for Mbc5 {
+    fn read(&self, address: Word) -> Byte {
+        match address {
+            0x0000..=0x3FFF => self.rom[address as usize],
+            0x4000..=0x7FFF => {
+                self.rom[0x4000 * (self.rom_bank as usize % self.rom_banks() as usize)
+                    + (address as usize - 0x4000)]
+            }
+            0xA000..=0xBFFF if !self.ram_enabled => 0xFF,
+            0xA000..=0xBFFF => {
+                if let Some(ram) = self.ram.as_ref() {
+                    let effective_address =
+                        0x2000 * self.ram_bank as usize + (address as usize - 0xA000);
+                    ram[effective_address]
+                } else {
+                    log::error!(
+                        "Read from RAM address {:#6X} for {} MBC with no RAM",
+                        address,
+                        self.name()
+                    );
+                    0xFF
+                }
+            }
+            _ => {
+                log::error!("Read from {:#6X} for {} MBC", address, self.name());
+                0xFF
+            }
+        }
+    }
+
+    fn write(&mut self, address: Word, data: Byte) {
+        match address {
+            // Unlike MBC1 all bits of the written value matter for MBC5
+            0x0000..=0x1FFF => self.ram_enabled = data == 0x0A,
+            0x2000..=0x2FFF => self.rom_bank = (self.rom_bank & 0x100) | data as Word,
+            0x3000..=0x3FFF => self.rom_bank = ((data as Word & 0b1) << 8) | (self.rom_bank & 0xFF),
+            0x4000..=0x5FFF => {
+                // The lower 4 bits of the written value are the RAM bank number
+                self.ram_bank = data & 0b1111;
+                // The bit 3 enables and disables rumble
+                // TODO: Take in a RUMBLE callback from the UI code
+                self.rumble_active = data & 0b1000 != 0;
+            }
+            0xA000..=0xBFFF if self.ram_enabled => {
+                let effective_address =
+                    0x2000 * self.ram_bank as usize + (address as usize - 0xA000);
+                if let Some(ram) = self.ram.as_mut() {
+                    ram[effective_address] = data;
+                }
+            }
+            0xA000..=0xBFFF => {}
+            _ => log::error!(
+                "Write to {:#6X} with {:#4X} for {} MBC",
+                address,
+                data,
+                self.name()
+            ),
+        }
+    }
+}
+
+impl Savable for Mbc5 {
+    fn savable(&self) -> bool {
+        self.savable
+    }
+
+    fn save_ram(&self) -> Option<&Vec<Byte>> {
+        self.ram.as_ref()
+    }
+}
+
+impl Cartridge for Mbc5 {}
+
+// END-MBC5 ----------------------------------------------------------------------------------------
 
 // Helper methods
 /// Calculate the ROM size and number of ROM banks of the cartridge from the
