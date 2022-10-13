@@ -10,7 +10,7 @@ use crate::{
 
 pub(crate) const VRAM_START: Word = 0x8000;
 pub(crate) const VRAM_END: Word = 0x9FFF;
-pub(crate) const VRAM_SIZE: usize = (VRAM_END - VRAM_START + 1) as usize;
+pub(crate) const VRAM_BANK_SIZE: usize = (VRAM_END - VRAM_START + 1) as usize;
 
 pub(crate) const OAM_START: Word = 0xFE00;
 pub(crate) const OAM_END: Word = 0xFE9F;
@@ -34,6 +34,7 @@ pub(crate) const OBP0_ADDRESS: Word = 0xFF48;
 pub(crate) const OBP1_ADDRESS: Word = 0xFF49;
 pub(crate) const WY_ADDRESS: Word = 0xFF4A;
 pub(crate) const WX_ADDRESS: Word = 0xFF4B;
+pub(crate) const VRAM_BANK_ADDRESS: Word = 0xFF4F;
 
 pub(crate) const DOTS_PER_TICK: i32 = 4;
 pub(crate) const OAM_DMA_CYCLES: Cycles = 160;
@@ -77,7 +78,9 @@ const TOTAL_SCANLINES: u32 = LCD_HEIGHT + VBLANK_SCANLINES;
 const VBLANK_DOTS: Dots = VBLANK_SCANLINES as Dots * SCANLINE_DOTS;
 
 pub(crate) struct Ppu {
-    vram: [Byte; VRAM_SIZE],
+    vram: [Byte; VRAM_BANK_SIZE * 2],
+    vram_bank: usize,
+
     oam: [Byte; OAM_SIZE],
 
     lcdc: Lcdc,
@@ -103,7 +106,8 @@ pub(crate) struct Ppu {
 
 impl Ppu {
     pub fn new(interrupts: Rc<RefCell<InterruptHandler>>) -> Self {
-        let vram = [0xFF; VRAM_SIZE];
+        let vram = [0xFF; VRAM_BANK_SIZE * 2];
+        let vram_bank = 0xFE; // Bank 0. All other bits are 1
         let oam = [0xFF; OAM_SIZE];
         let lcdc = Default::default();
         let mut stat: LcdStat = Default::default();
@@ -114,6 +118,7 @@ impl Ppu {
 
         Ppu {
             vram,
+            vram_bank,
             oam,
             lcdc,
             stat,
@@ -528,7 +533,8 @@ impl Memory for Ppu {
         match address {
             // TODO: VRAM/OAM disable access to CPU after timings are perfect
             VRAM_START..=VRAM_END /*if self.stat.mode() != LcdStatus::Rendering*/ => {
-                self.vram[(address - VRAM_START) as usize]
+                let index = VRAM_BANK_SIZE * (self.vram_bank & 0b1) + (address - VRAM_START) as usize;
+                self.vram[index]
             }
             OAM_START..=OAM_END
             /*if self.stat.mode() != LcdStatus::OamSearch
@@ -547,6 +553,7 @@ impl Memory for Ppu {
             OBP1_ADDRESS => self.obp1,
             WY_ADDRESS => self.wy,
             WX_ADDRESS => self.wx,
+            VRAM_BANK_ADDRESS => self.vram_bank as Byte,
             _ => 0xFF,
         }
     }
@@ -554,7 +561,8 @@ impl Memory for Ppu {
     fn write(&mut self, address: Word, data: Byte) {
         match address {
             VRAM_START..=VRAM_END /* if self.stat.mode() != LcdStatus::Rendering */ => {
-                self.vram[(address - VRAM_START) as usize] = data
+                let index = VRAM_BANK_SIZE * (self.vram_bank & 0b1) + (address - VRAM_START) as usize;
+                self.vram[index] = data
             }
             OAM_START..=OAM_END
             // if self.stat.mode() != LcdStatus::OamSearch
@@ -578,6 +586,7 @@ impl Memory for Ppu {
             OBP1_ADDRESS => self.obp1 = data,
             WY_ADDRESS => self.wy = data,
             WX_ADDRESS => self.wx = data,
+            VRAM_BANK_ADDRESS => self.vram_bank = 0xFE | (data as usize & 0b1),
             _ => {}
         }
     }

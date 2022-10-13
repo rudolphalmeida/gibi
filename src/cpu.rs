@@ -2,6 +2,7 @@ use std::{cell::RefCell, rc::Rc};
 
 use paste::paste;
 
+use crate::cartridge::HardwareSupport;
 use crate::interrupts::{
     InterruptHandler, InterruptType, INTERRUPT_ENABLE_ADDRESS, INTERRUPT_FLAG_ADDRESS,
 };
@@ -18,6 +19,8 @@ enum CpuState {
 }
 
 pub(crate) struct Cpu {
+    hardware_supported: HardwareSupport,
+
     mmu: Rc<RefCell<Mmu>>,
     regs: Registers,
 
@@ -28,13 +31,18 @@ pub(crate) struct Cpu {
 }
 
 impl Cpu {
-    pub fn new(mmu: Rc<RefCell<Mmu>>, interrupts: Rc<RefCell<InterruptHandler>>) -> Self {
+    pub fn new(
+        mmu: Rc<RefCell<Mmu>>,
+        interrupts: Rc<RefCell<InterruptHandler>>,
+        hardware_supported: HardwareSupport,
+    ) -> Self {
         let regs = Default::default();
         let ime = true;
         let state = CpuState::Executing;
 
-        log::debug!("Initialized CPU for DMG");
+        log::debug!("Initialized CPU for CGB");
         Cpu {
+            hardware_supported,
             mmu,
             regs,
             state,

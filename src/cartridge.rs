@@ -4,12 +4,7 @@ use crate::{
     utils::{Byte, Word},
 };
 
-pub(crate) trait Savable {
-    fn savable(&self) -> bool;
-    fn save_ram(&self) -> Option<&Vec<Byte>>;
-}
-pub(crate) trait Cartridge: Memory + Mbc + Savable {}
-
+const CGB_FLAG_ADDRESS: Word = 0x143;
 const CARTRIDGE_TYPE_ADDRESS: Word = 0x147;
 const ROM_SIZE_ADDRESS: Word = 0x148;
 const ROM_BANK_SIZE: u32 = 1024 * 16;
@@ -18,13 +13,31 @@ const RAM_BANK_SIZE: u32 = 1024 * 8;
 
 pub const BOOT_ROM_START: Word = 0x0000;
 pub const BOOT_ROM_END: Word = 0x00FF;
-pub const BOOT_ROM: &[Byte; 256] = include_bytes!("../roms/dmg_boot.bin");
+pub const DMG_BOOT_ROM: &[Byte; 0x100] = include_bytes!("../roms/dmg_boot.bin");
+pub const CGB_BOOT_ROM: &[Byte; 0x900] = include_bytes!("../roms/cgb_boot.bin");
 
 pub const CART_ROM_START: Word = 0x0000;
 pub const CART_ROM_END: Word = 0x7FFF;
 
 pub const CART_RAM_START: Word = 0xA000;
 pub const CART_RAM_END: Word = 0xBFFF;
+
+#[derive(Debug, Copy, Clone)]
+pub(crate) enum HardwareSupport {
+    CgbOnly,
+    DmgCgb,
+}
+
+pub(crate) trait Savable {
+    fn savable(&self) -> bool;
+    fn save_ram(&self) -> Option<&Vec<Byte>>;
+}
+pub(crate) trait Cartridge: Memory + Mbc + Savable {
+    fn hardware_supported(&self) -> HardwareSupport {
+        // FIXME
+        HardwareSupport::DmgCgb
+    }
+}
 
 pub(crate) fn init_mbc_from_rom(rom: Vec<Byte>, ram: Option<Vec<Byte>>) -> Box<dyn Cartridge> {
     match rom[CARTRIDGE_TYPE_ADDRESS as usize] {

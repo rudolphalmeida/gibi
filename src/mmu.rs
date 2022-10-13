@@ -2,19 +2,19 @@ use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
 use crate::apu::{Apu, SOUND_END, SOUND_START, WAVE_END, WAVE_START};
-use crate::cartridge::init_mbc_from_rom;
+use crate::cartridge::HardwareSupport;
 use crate::interrupts::{InterruptHandler, INTERRUPT_ENABLE_ADDRESS, INTERRUPT_FLAG_ADDRESS};
 use crate::ppu::{
     OAM_DMA_ADDRESS, OAM_DMA_CYCLES, PALETTE_END, PALETTE_START, PPU_REGISTERS_END,
-    PPU_REGISTERS_START,
+    PPU_REGISTERS_START, VRAM_BANK_ADDRESS,
 };
 use crate::serial::{Serial, SERIAL_END, SERIAL_START};
 use crate::timer::{Timer, TIMER_END, TIMER_START};
 use crate::utils::Cycles;
 use crate::{
     cartridge::{
-        Cartridge, BOOT_ROM, BOOT_ROM_END, BOOT_ROM_START, CART_RAM_END, CART_RAM_START,
-        CART_ROM_END, CART_ROM_START,
+        Cartridge, BOOT_ROM_END, BOOT_ROM_START, CART_RAM_END, CART_RAM_START, CART_ROM_END,
+        CART_ROM_START, DMG_BOOT_ROM,
     },
     joypad::{Joypad, JOYP_ADDRESS},
     memory::Memory,
@@ -26,8 +26,10 @@ const WRAM_BANK_SIZE: usize = 1024 * 4;
 // 4KB
 const HRAM_SIZE: usize = 0xFFFE - 0xFF80 + 1;
 
-const WRAM_START: Word = 0xC000;
-const WRAM_END: Word = 0xDFFF;
+const WRAM_FIXED_START: Word = 0xC000;
+const WRAM_FIXED_END: Word = 0xCFFF;
+const WRAM_BANKED_START: Word = 0xD000;
+const WRAM_BANKED_END: Word = 0xDFFF;
 const WRAM_ECHO_START: Word = 0xE000;
 const WRAM_ECHO_END: Word = 0xFDFF;
 
@@ -57,7 +59,15 @@ pub(crate) struct Mmu {
     pub(crate) cart: Box<dyn Cartridge>,
     ppu: Rc<RefCell<Ppu>>,
     apu: Rc<RefCell<Apu>>,
-    wram: [Byte; WRAM_BANK_SIZE * 2],
+
+    /// Hardware supported by the current cartridge
+    hardware_supported: HardwareSupport,
+
+    // Only two banks are used in DMG mode
+    // CGB mode uses all 8, with 0 being fixed, and 1-7 being switchable
+    wram: [Byte; WRAM_BANK_SIZE * 8],
+    wram_bank: usize,
+
     hram: [Byte; HRAM_SIZE],
     joypad: Rc<RefCell<Joypad>>,
     serial: Serial,
@@ -74,15 +84,16 @@ pub(crate) struct Mmu {
 
 impl Mmu {
     pub fn new(
-        rom: Vec<Byte>,
-        ram: Option<Vec<Byte>>,
+        cart: Box<dyn Cartridge>,
+        hardware_supported: HardwareSupport,
         ppu: Rc<RefCell<Ppu>>,
         apu: Rc<RefCell<Apu>>,
         joypad: Rc<RefCell<Joypad>>,
         interrupts: Rc<RefCell<InterruptHandler>>,
     ) -> Self {
-        let cart = init_mbc_from_rom(rom, ram);
-        let wram = [0x00; WRAM_BANK_SIZE * 2]; // 8KB
+        let wram = [0x00; WRAM_BANK_SIZE * 8]; // 32KB
+        let wram_bank = 0x1;
+
         let hram = [0x00; HRAM_SIZE];
         let serial = Serial::new();
         let timer = RefCell::new(Timer::new(Rc::clone(&interrupts)));
@@ -91,11 +102,13 @@ impl Mmu {
         let bootrom_enabled = true;
         let oam_dma = RefCell::new(None);
 
-        log::debug!("Initialized MMU for DMG");
+        log::debug!("Initialized MMU for CGB");
 
         Self {
             cart,
+            hardware_supported,
             wram,
+            wram_bank,
             hram,
             ppu,
             joypad,
@@ -149,15 +162,26 @@ impl Mmu {
     pub fn raw_read(&self, address: u16) -> Byte {
         match address {
             BOOT_ROM_START..=BOOT_ROM_END if self.bootrom_enabled => {
-                return BOOT_ROM[address as usize]
+                return DMG_BOOT_ROM[address as usize]
             }
             CART_ROM_START..=CART_ROM_END => return self.cart.read(address),
             VRAM_START..=VRAM_END => return self.ppu.borrow().read(address),
             CART_RAM_START..=CART_RAM_END => return self.cart.read(address),
-            WRAM_START..=WRAM_END => return self.wram[(address - WRAM_START) as usize],
-            WRAM_ECHO_START..=WRAM_ECHO_END => {
-                return self.wram[(address - WRAM_ECHO_START) as usize]
+            WRAM_FIXED_START..=WRAM_FIXED_END => {
+                return self.wram[(address - WRAM_FIXED_START) as usize]
             }
+            // Switchable bank for WRAM
+            WRAM_BANKED_START..=WRAM_BANKED_END => {
+                let index = WRAM_BANK_SIZE
+                    * if self.wram_bank == 0x00 {
+                        1
+                    } else {
+                        self.wram_bank
+                    }
+                    + (address - WRAM_FIXED_START) as usize;
+                return self.wram[index];
+            }
+            WRAM_ECHO_START..=WRAM_ECHO_END => return self.raw_read(address - WRAM_ECHO_START),
             OAM_START..=OAM_END => return self.ppu.borrow().read(address),
             UNUSED_START..=UNUSED_END => {}
             JOYP_ADDRESS => return self.joypad.borrow().read(address),
@@ -168,10 +192,11 @@ impl Mmu {
             WAVE_START..=WAVE_END => return self.apu.borrow().read(address),
             OAM_DMA_ADDRESS => return 0xFF, // TODO: Check if this is correct
             PPU_REGISTERS_START..=PPU_REGISTERS_END => return self.ppu.borrow().read(address),
+            VRAM_BANK_ADDRESS => return self.ppu.borrow().read(address),
             BOOTROM_DISABLE => return if self.bootrom_enabled { 0x01 } else { 0x00 },
             VRAM_DMA_START..=VRAM_DMA_END => {}
             PALETTE_START..=PALETTE_END => return self.ppu.borrow().read(address),
-            WRAM_BANK_SELECT => {}
+            WRAM_BANK_SELECT => return self.wram_bank as Byte,
             HRAM_START..=HRAM_END => return self.hram[(address - HRAM_START) as usize],
             INTERRUPT_ENABLE_ADDRESS => return self.interrupts.borrow().read(address),
             _ => log::error!("Unknown address to Mmu::read {:#06X}", address),
@@ -187,8 +212,20 @@ impl Mmu {
             CART_ROM_START..=CART_ROM_END => self.cart.write(address, data),
             VRAM_START..=VRAM_END => self.ppu.borrow_mut().write(address, data),
             CART_RAM_START..=CART_RAM_END => self.cart.write(address, data),
-            WRAM_START..=WRAM_END => self.wram[address as usize - 0xC000] = data,
-            WRAM_ECHO_START..=WRAM_ECHO_END => self.wram[address as usize - 0xE000] = data,
+            WRAM_FIXED_START..=WRAM_FIXED_END => {
+                self.wram[(address - WRAM_FIXED_START) as usize] = data
+            }
+            WRAM_BANKED_START..=WRAM_BANKED_END => {
+                let index = WRAM_BANK_SIZE
+                    * if self.wram_bank == 0x00 {
+                        1
+                    } else {
+                        self.wram_bank
+                    }
+                    + (address - WRAM_FIXED_START) as usize;
+                self.wram[index] = data
+            }
+            WRAM_ECHO_START..=WRAM_ECHO_END => self.raw_write(address - WRAM_ECHO_START, data),
             OAM_START..=OAM_END => self.ppu.borrow_mut().write(address, data),
             UNUSED_START..=UNUSED_END => {}
             JOYP_ADDRESS => self.joypad.borrow_mut().write(address, data),
@@ -206,6 +243,7 @@ impl Mmu {
                 *self.oam_dma.borrow_mut() = Some(oam_dma);
             }
             PPU_REGISTERS_START..=PPU_REGISTERS_END => self.ppu.borrow_mut().write(address, data),
+            VRAM_BANK_ADDRESS => self.ppu.borrow_mut().write(address, data),
             BOOTROM_DISABLE => {
                 self.bootrom_enabled = data == 0x00;
                 if !self.bootrom_enabled {
@@ -214,7 +252,7 @@ impl Mmu {
             }
             VRAM_DMA_START..=VRAM_DMA_END => {}
             PALETTE_START..=PALETTE_END => self.ppu.borrow_mut().write(address, data),
-            WRAM_BANK_SELECT => {}
+            WRAM_BANK_SELECT => self.wram_bank = data as usize & 0b111,
             HRAM_START..=HRAM_END => self.hram[address as usize - 0xFF80] = data,
             INTERRUPT_ENABLE_ADDRESS => self.interrupts.borrow_mut().write(address, data),
             _ => log::error!("Unknown address to Mmu::write {:#06X}", address),

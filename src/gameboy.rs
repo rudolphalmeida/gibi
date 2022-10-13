@@ -3,6 +3,7 @@ use std::{cell::RefCell, rc::Rc};
 use std::{fs, io};
 
 use crate::apu::Apu;
+use crate::cartridge::{init_mbc_from_rom, HardwareSupport};
 use crate::interrupts::InterruptHandler;
 use crate::joypad::{Joypad, JoypadKeys};
 use crate::utils::{Byte, Cycles};
@@ -11,6 +12,9 @@ use crate::{cpu::Cpu, mmu::Mmu, ppu::Ppu};
 const CYCLES_PER_FRAME: Cycles = 17556;
 
 pub struct Gameboy {
+    /// Hardware supported by current cartridge
+    hardware_supported: HardwareSupport,
+
     mmu: Rc<RefCell<Mmu>>,
     ppu: Rc<RefCell<Ppu>>,
     joypad: Rc<RefCell<Joypad>>,
@@ -26,23 +30,26 @@ pub struct Gameboy {
 
 impl Gameboy {
     pub fn new(rom: Vec<Byte>, ram: Option<Vec<Byte>>) -> Self {
+        let cart = init_mbc_from_rom(rom, ram);
+        let hardware_supported = cart.hardware_supported();
+
         let interrupts = Rc::new(RefCell::new(InterruptHandler::default()));
 
         let ppu = Rc::new(RefCell::new(Ppu::new(Rc::clone(&interrupts))));
         let apu = Rc::new(RefCell::new(Apu::new()));
         let joypad = Rc::new(RefCell::new(Joypad::new(Rc::clone(&interrupts))));
         let mmu = Rc::new(RefCell::new(Mmu::new(
-            rom,
-            ram,
+            cart,
+            hardware_supported,
             Rc::clone(&ppu),
             apu,
             Rc::clone(&joypad),
             Rc::clone(&interrupts),
         )));
-        let cpu = Cpu::new(Rc::clone(&mmu), interrupts);
+        let cpu = Cpu::new(Rc::clone(&mmu), interrupts, hardware_supported);
         let carry_over_cycles = 0;
 
-        log::debug!("Initialized GameBoy with DMG components");
+        log::debug!("Initialized GameBoy with CGB components");
         {
             let mmu = mmu.borrow();
             log::info!("Loaded a cartridge with MBC: {}", mmu.cart.name());
@@ -52,6 +59,7 @@ impl Gameboy {
             log::info!("RAM size (Bytes): {}", mmu.cart.ram_size());
         }
         Gameboy {
+            hardware_supported,
             mmu,
             cpu,
             joypad,
