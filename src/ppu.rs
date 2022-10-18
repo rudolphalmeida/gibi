@@ -338,7 +338,7 @@ impl Ppu {
         if self.ly < self.wy || self.wx as u32 >= LCD_WIDTH + 7 {
             return;
         }
-        // This is the value of the internal Window counter in the Gameboy hardware for this LY
+        // This is the value of the internal Window counter in the Game boy hardware for this LY
         let window_y = match self.window_internal_counter {
             Some(x) => {
                 self.window_internal_counter = Some(x + 1);
@@ -417,12 +417,12 @@ impl Ppu {
                 + TiledataAddressingMode::Unsigned as Word;
 
             // We offset LY by 16 to ease the following calculations and prevent overflow checks
-            let offsetted_ly = self.ly + 16;
+            let offset_ly = self.ly + 16;
 
             let sprite_line_offset = if sprite.flip_y() {
-                sprite_height - (offsetted_ly - sprite.y) - 1
+                sprite_height - (offset_ly - sprite.y) - 1
             } else {
-                offsetted_ly - sprite.y
+                offset_ly - sprite.y
             };
 
             let tile_line_data_start_address =

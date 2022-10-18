@@ -2,7 +2,7 @@ use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
 use crate::apu::{Apu, SOUND_END, SOUND_START, WAVE_END, WAVE_START};
-use crate::cartridge::HardwareSupport;
+use crate::cartridge::{HardwareSupport, CGB_BOOT_ROM};
 use crate::interrupts::{InterruptHandler, INTERRUPT_ENABLE_ADDRESS, INTERRUPT_FLAG_ADDRESS};
 use crate::ppu::{
     OAM_DMA_ADDRESS, OAM_DMA_CYCLES, PALETTE_END, PALETTE_START, PPU_REGISTERS_END,
@@ -21,6 +21,9 @@ use crate::{
     ppu::{Ppu, OAM_END, OAM_START, VRAM_END, VRAM_START},
     utils::{Byte, Word},
 };
+
+const CART_HEADER_START: Word = 0x100;
+const CART_HEADER_END: Word = 0x1FF;
 
 const WRAM_BANK_SIZE: usize = 1024 * 4;
 // 4KB
@@ -161,8 +164,9 @@ impl Mmu {
     /// components
     pub fn raw_read(&self, address: u16) -> Byte {
         match address {
+            CART_RAM_START..=CART_HEADER_END => return self.cart.read(address),
             BOOT_ROM_START..=BOOT_ROM_END if self.bootrom_enabled => {
-                return DMG_BOOT_ROM[address as usize]
+                return CGB_BOOT_ROM[address as usize]
             }
             CART_ROM_START..=CART_ROM_END => return self.cart.read(address),
             VRAM_START..=VRAM_END => return self.ppu.borrow().read(address),
@@ -206,6 +210,7 @@ impl Mmu {
 
     fn raw_write(&mut self, address: Word, data: Byte) {
         match address {
+            CART_HEADER_START..=CART_HEADER_END => self.cart.write(address, data),
             BOOT_ROM_START..=BOOT_ROM_END if self.bootrom_enabled => {
                 log::error!("Write to boot ROM {:#06X} with {:#04X}", address, data)
             }

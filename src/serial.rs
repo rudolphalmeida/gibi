@@ -13,12 +13,9 @@ impl Serial {
 }
 
 impl Memory for Serial {
-    fn read(&self, _address: Word) -> Byte {
-        log::debug!("Serial not implemented");
+    fn read(&self, _address: Word) -> Byte { 
         0xFF
     }
 
-    fn write(&mut self, _address: Word, _data: Byte) {
-        log::debug!("Serial not implemented");
-    }
+    fn write(&mut self, _address: Word, _data: Byte) {}
 }

@@ -12,7 +12,7 @@ const RAM_SIZE_ADDRESS: Word = 0x149;
 const RAM_BANK_SIZE: u32 = 1024 * 8;
 
 pub const BOOT_ROM_START: Word = 0x0000;
-pub const BOOT_ROM_END: Word = 0x00FF;
+pub const BOOT_ROM_END: Word = 0x08FF;
 pub const DMG_BOOT_ROM: &[Byte; 0x100] = include_bytes!("../roms/dmg_boot.bin");
 pub const CGB_BOOT_ROM: &[Byte; 0x900] = include_bytes!("../roms/cgb_boot.bin");
 
