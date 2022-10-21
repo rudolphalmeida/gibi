@@ -164,7 +164,7 @@ impl Mmu {
     /// components
     pub fn raw_read(&self, address: u16) -> Byte {
         match address {
-            CART_RAM_START..=CART_HEADER_END => return self.cart.read(address),
+            CART_HEADER_START..=CART_HEADER_END => return self.cart.read(address),
             BOOT_ROM_START..=BOOT_ROM_END if self.bootrom_enabled => {
                 return CGB_BOOT_ROM[address as usize]
             }
