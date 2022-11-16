@@ -19,9 +19,6 @@ pub(crate) const OAM_SIZE: usize = (OAM_END - OAM_START + 1) as usize;
 pub(crate) const PPU_REGISTERS_START: Word = 0xFF40;
 pub(crate) const PPU_REGISTERS_END: Word = 0xFF4B;
 
-pub(crate) const PALETTE_START: Word = 0xFF68;
-pub(crate) const PALETTE_END: Word = 0xFF69;
-
 pub(crate) const LCDC_ADDRESS: Word = 0xFF40;
 pub(crate) const STAT_ADDRESS: Word = 0xFF41;
 pub(crate) const SCY_ADDRESS: Word = 0xFF42;
@@ -35,6 +32,14 @@ pub(crate) const OBP1_ADDRESS: Word = 0xFF49;
 pub(crate) const WY_ADDRESS: Word = 0xFF4A;
 pub(crate) const WX_ADDRESS: Word = 0xFF4B;
 pub(crate) const VRAM_BANK_ADDRESS: Word = 0xFF4F;
+
+pub(crate) const PALETTE_START: Word = 0xFF68;
+pub(crate) const PALETTE_END: Word = 0xFF6B;
+
+pub(crate) const BCPS_ADDRESS: Word = 0xFF68;
+pub(crate) const BCPD_ADDRESS: Word = 0xFF69;
+pub(crate) const OCPS_ADDRESS: Word = 0xFF6A;
+pub(crate) const OCPD_ADDRESS: Word = 0xFF6B;
 
 pub(crate) const DOTS_PER_TICK: i32 = 4;
 pub(crate) const OAM_DMA_CYCLES: Cycles = 160;
@@ -77,6 +82,8 @@ const VBLANK_SCANLINES: u32 = 10;
 const TOTAL_SCANLINES: u32 = LCD_HEIGHT + VBLANK_SCANLINES;
 const VBLANK_DOTS: Dots = VBLANK_SCANLINES as Dots * SCANLINE_DOTS;
 
+const COLOR_PALETTE_SIZE: usize = 64;
+
 pub(crate) struct Ppu {
     vram: [Byte; VRAM_BANK_SIZE * 2],
     vram_bank: usize,
@@ -91,6 +98,12 @@ pub(crate) struct Ppu {
     lyc: Byte,
     wy: Byte,
     wx: Byte,
+
+    // CGB palette registers and data
+    bcps: Byte,
+    ocps: Byte,
+    color_bg_palettes: [Byte; COLOR_PALETTE_SIZE],
+    color_obj_palettes: [Byte; COLOR_PALETTE_SIZE],
 
     dots_in_line: Dots,
     window_internal_counter: Option<Byte>,
@@ -133,6 +146,10 @@ impl Ppu {
             bgp: 0x00,
             obp0: 0x00,
             obp1: 0x00,
+            bcps: 0x00,
+            ocps: 0x00,
+            color_bg_palettes: [0x00; COLOR_PALETTE_SIZE],
+            color_obj_palettes: [0x00; COLOR_PALETTE_SIZE],
             interrupts,
             framebuffer,
         }
@@ -526,6 +543,28 @@ impl Ppu {
         sprites.truncate(10); // The GameBoy LCD can only show 10 sprites per scanline
         sprites
     }
+
+    fn bcp_read(&self) -> Byte {
+        self.color_bg_palettes[(self.bcps & 0x1F) as usize]
+    }
+
+    fn bcp_write(&mut self, data: Byte) {
+        self.color_bg_palettes[(self.bcps & 0x1F) as usize] = data;
+        if self.bcps & 0x80 != 0 {
+            self.bcps += 1;
+        }
+    }
+
+    fn ocp_read(&self) -> Byte {
+        self.color_obj_palettes[(self.ocps & 0x1F) as usize]
+    }
+
+    fn ocp_write(&mut self, data: Byte) {
+        self.color_obj_palettes[(self.ocps & 0x1F) as usize] = data;
+        if self.ocps & 0x80 != 0 {
+            self.ocps += 1;
+        }
+    }
 }
 
 impl Memory for Ppu {
@@ -554,6 +593,10 @@ impl Memory for Ppu {
             WY_ADDRESS => self.wy,
             WX_ADDRESS => self.wx,
             VRAM_BANK_ADDRESS => self.vram_bank as Byte,
+            BCPS_ADDRESS => self.bcps,
+            BCPD_ADDRESS => self.bcp_read(),
+            OCPS_ADDRESS => self.ocps,
+            OCPD_ADDRESS => self.ocp_read(),
             _ => 0xFF,
         }
     }
@@ -587,6 +630,10 @@ impl Memory for Ppu {
             WY_ADDRESS => self.wy = data,
             WX_ADDRESS => self.wx = data,
             VRAM_BANK_ADDRESS => self.vram_bank = 0xFE | (data as usize & 0b1),
+            BCPS_ADDRESS => self.bcps = data & !(0x1 << 6),  // Ignore bit 6
+            BCPD_ADDRESS => self.bcp_write(data),
+            OCPS_ADDRESS => self.ocps = data & !(0x1 << 6),  // Ignore bit 6
+            OCPD_ADDRESS => self.ocp_write(data),
             _ => {}
         }
     }

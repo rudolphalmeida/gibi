@@ -14,7 +14,7 @@ use crate::utils::Cycles;
 use crate::{
     cartridge::{
         Cartridge, BOOT_ROM_END, BOOT_ROM_START, CART_RAM_END, CART_RAM_START, CART_ROM_END,
-        CART_ROM_START, DMG_BOOT_ROM,
+        CART_ROM_START,
     },
     joypad::{Joypad, JOYP_ADDRESS},
     memory::Memory,
@@ -25,8 +25,7 @@ use crate::{
 const CART_HEADER_START: Word = 0x100;
 const CART_HEADER_END: Word = 0x1FF;
 
-const WRAM_BANK_SIZE: usize = 1024 * 4;
-// 4KB
+const WRAM_BANK_SIZE: usize = 1024 * 4; // 4KB
 const HRAM_SIZE: usize = 0xFFFE - 0xFF80 + 1;
 
 const WRAM_FIXED_START: Word = 0xC000;
@@ -175,16 +174,7 @@ impl Mmu {
                 return self.wram[(address - WRAM_FIXED_START) as usize]
             }
             // Switchable bank for WRAM
-            WRAM_BANKED_START..=WRAM_BANKED_END => {
-                let index = WRAM_BANK_SIZE
-                    * if self.wram_bank == 0x00 {
-                        1
-                    } else {
-                        self.wram_bank
-                    }
-                    + (address - WRAM_FIXED_START) as usize;
-                return self.wram[index];
-            }
+            WRAM_BANKED_START..=WRAM_BANKED_END => return self.wram_banked_read(address),
             WRAM_ECHO_START..=WRAM_ECHO_END => return self.raw_read(address - WRAM_ECHO_START),
             OAM_START..=OAM_END => return self.ppu.borrow().read(address),
             UNUSED_START..=UNUSED_END => {}
@@ -208,6 +198,32 @@ impl Mmu {
         0xFF
     }
 
+    fn wram_banked_read(&self, address: Word) -> Byte {
+        // FIXME: Index out of range errors
+        let index = WRAM_BANK_SIZE
+            * if self.wram_bank == 0x00 {
+                1
+            } else {
+                self.wram_bank
+            }
+            + (address - WRAM_FIXED_START) as usize;
+
+        return self.wram[index];
+    }
+
+    fn wram_banked_write(&mut self, address: Word, data: Byte) {
+        // FIXME: Index out of range errors
+        let index = WRAM_BANK_SIZE
+            * if self.wram_bank == 0x00 {
+                1
+            } else {
+                self.wram_bank
+            }
+            + (address - WRAM_FIXED_START) as usize;
+
+        self.wram[index] = data
+    }
+
     fn raw_write(&mut self, address: Word, data: Byte) {
         match address {
             CART_HEADER_START..=CART_HEADER_END => self.cart.write(address, data),
@@ -220,16 +236,7 @@ impl Mmu {
             WRAM_FIXED_START..=WRAM_FIXED_END => {
                 self.wram[(address - WRAM_FIXED_START) as usize] = data
             }
-            WRAM_BANKED_START..=WRAM_BANKED_END => {
-                let index = WRAM_BANK_SIZE
-                    * if self.wram_bank == 0x00 {
-                        1
-                    } else {
-                        self.wram_bank
-                    }
-                    + (address - WRAM_FIXED_START) as usize;
-                self.wram[index] = data
-            }
+            WRAM_BANKED_START..=WRAM_BANKED_END => self.wram_banked_write(address, data),
             WRAM_ECHO_START..=WRAM_ECHO_END => self.raw_write(address - WRAM_ECHO_START, data),
             OAM_START..=OAM_END => self.ppu.borrow_mut().write(address, data),
             UNUSED_START..=UNUSED_END => {}
@@ -249,18 +256,20 @@ impl Mmu {
             }
             PPU_REGISTERS_START..=PPU_REGISTERS_END => self.ppu.borrow_mut().write(address, data),
             VRAM_BANK_ADDRESS => self.ppu.borrow_mut().write(address, data),
-            BOOTROM_DISABLE => {
-                self.bootrom_enabled = data == 0x00;
-                if !self.bootrom_enabled {
-                    log::info!("Boot ROM disabled");
-                }
-            }
+            BOOTROM_DISABLE => self.disable_bootrom(data),
             VRAM_DMA_START..=VRAM_DMA_END => {}
             PALETTE_START..=PALETTE_END => self.ppu.borrow_mut().write(address, data),
             WRAM_BANK_SELECT => self.wram_bank = data as usize & 0b111,
             HRAM_START..=HRAM_END => self.hram[address as usize - 0xFF80] = data,
             INTERRUPT_ENABLE_ADDRESS => self.interrupts.borrow_mut().write(address, data),
             _ => log::error!("Unknown address to Mmu::write {:#06X}", address),
+        }
+    }
+
+    fn disable_bootrom(&mut self, data: Byte) {
+        self.bootrom_enabled = data == 0x00;
+        if !self.bootrom_enabled {
+            log::info!("Boot ROM disabled");
         }
     }
 

@@ -32,6 +32,7 @@ pub(crate) trait Savable {
     fn savable(&self) -> bool;
     fn save_ram(&self) -> Option<&Vec<Byte>>;
 }
+
 pub(crate) trait Cartridge: Memory + Mbc + Savable {
     fn hardware_supported(&self) -> HardwareSupport {
         // FIXME
