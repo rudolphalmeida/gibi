@@ -1,6 +1,5 @@
 pub(crate) type Byte = u8;
 pub(crate) type Word = u16;
-pub(crate) type Sbyte = i8;
 /// Machine-Cycles (m)
 pub(crate) type Cycles = u64;
 
@@ -22,11 +21,7 @@ pub(crate) fn decompose_word(value: Word) -> (Byte, Byte) {
 }
 
 pub(crate) fn bit_value(value: Byte, index: Byte) -> Byte {
-    if value & (1 << index) != 0 {
-        0x1
-    } else {
-        0x0
-    }
+    u8::from(value & (1 << index) != 0)
 }
 
 /// Calculate the minimum number of bits required to store a value

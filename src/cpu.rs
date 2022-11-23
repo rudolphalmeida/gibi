@@ -240,7 +240,7 @@ impl Cpu {
     }
 
     fn adc_a(&mut self, operand: Byte) {
-        let carry = if self.regs.f.carry { 1 } else { 0 };
+        let carry = u8::from(self.regs.f.carry);
         let result = self.regs.a.wrapping_add(operand).wrapping_add(carry);
 
         self.regs.f.zero = result == 0x00;
@@ -263,7 +263,7 @@ impl Cpu {
     }
 
     fn sbc_a(&mut self, operand: Byte) {
-        let carry = if self.regs.f.carry { 1 } else { 0 };
+        let carry = u8::from(self.regs.f.carry);
         let result = self.regs.a.wrapping_sub(operand).wrapping_sub(carry);
 
         self.regs.f.zero = result == 0x00;
@@ -545,7 +545,7 @@ impl Cpu {
     }
 
     fn rlc(&mut self, mut operand: Byte) -> Byte {
-        let bit7 = if operand & 0x80 != 0 { 1 } else { 0 };
+        let bit7 = u8::from(operand & 0x80 != 0);
         self.regs.f.carry = bit7 != 0;
 
         operand <<= 1;
@@ -559,7 +559,7 @@ impl Cpu {
     }
 
     fn rrc(&mut self, mut operand: Byte) -> Byte {
-        let bit0 = if operand & 0x1 != 0 { 1 } else { 0 };
+        let bit0 = u8::from(operand & 0x1 != 0);
         self.regs.f.carry = bit0 != 0;
 
         operand >>= 1;
@@ -573,7 +573,7 @@ impl Cpu {
     }
 
     fn rl(&mut self, mut operand: Byte) -> Byte {
-        let carry = if self.regs.f.carry { 1 } else { 0 };
+        let carry = u8::from(self.regs.f.carry);
         self.regs.f.carry = (operand & 0x80) != 0;
         operand <<= 1;
         operand |= carry;
@@ -586,7 +586,7 @@ impl Cpu {
     }
 
     fn rr(&mut self, mut operand: u8) -> u8 {
-        let carry = if self.regs.f.carry { 1 } else { 0 };
+        let carry = u8::from(self.regs.f.carry);
         self.regs.f.carry = (operand & 0b1) != 0;
         operand >>= 1;
         operand |= carry << 7;

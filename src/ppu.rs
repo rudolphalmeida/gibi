@@ -161,7 +161,7 @@ impl Ppu {
 
             match self.stat.mode() {
                 LcdStatus::OamSearch if self.dots_in_line == OAM_SEARCH_DOTS => {
-                    let old_stat = self.stat.clone();
+                    let old_stat = self.stat;
                     self.stat.set_mode(LcdStatus::Rendering);
 
                     if !old_stat.is_stat_irq_asserted() && self.stat.is_stat_irq_asserted() {
@@ -172,7 +172,7 @@ impl Ppu {
                 }
                 LcdStatus::Rendering if self.dots_in_line == RENDERING_DOTS => {
                     self.render_line();
-                    let old_stat = self.stat.clone();
+                    let old_stat = self.stat;
                     self.stat.set_mode(LcdStatus::Hblank);
 
                     if !old_stat.is_stat_irq_asserted() && self.stat.is_stat_irq_asserted() {
@@ -184,7 +184,7 @@ impl Ppu {
                 LcdStatus::Hblank if self.dots_in_line == SCANLINE_DOTS => {
                     self.ly += 1;
                     self.dots_in_line = 0;
-                    let old_stat = self.stat.clone();
+                    let old_stat = self.stat;
 
                     let next_mode = if self.ly == LCD_HEIGHT as Byte {
                         // Going into VBlank
@@ -218,7 +218,7 @@ impl Ppu {
                     }
 
                     // The LY-LYC compare interrupt is actually delayed by 1 CPU cycle
-                    let old_stat = self.stat.clone();
+                    let old_stat = self.stat;
                     self.stat.set_ly_lyc_state(self.ly == self.lyc);
                     if !old_stat.is_stat_irq_asserted() && self.stat.is_stat_irq_asserted() {
                         self.interrupts
@@ -229,7 +229,7 @@ impl Ppu {
                 LcdStatus::Vblank if self.ly == 153 && self.dots_in_line == 8 => {
                     self.ly = 0;
 
-                    let old_stat = self.stat.clone();
+                    let old_stat = self.stat;
                     self.stat.set_ly_lyc_state(self.ly == self.lyc);
                     if !old_stat.is_stat_irq_asserted() && self.stat.is_stat_irq_asserted() {
                         self.interrupts
@@ -238,7 +238,7 @@ impl Ppu {
                     }
                 }
                 LcdStatus::Vblank if self.ly == 0 && self.dots_in_line == SCANLINE_DOTS => {
-                    let old_stat = self.stat.clone();
+                    let old_stat = self.stat;
                     self.stat.set_mode(LcdStatus::OamSearch);
                     self.dots_in_line = 0;
 
@@ -253,7 +253,7 @@ impl Ppu {
                     self.ly += 1;
                     self.dots_in_line = 0;
 
-                    let old_stat = self.stat.clone();
+                    let old_stat = self.stat;
                     self.stat.set_ly_lyc_state(self.ly == self.lyc);
                     if !old_stat.is_stat_irq_asserted() && self.stat.is_stat_irq_asserted() {
                         self.interrupts
@@ -444,8 +444,8 @@ impl Ppu {
 
             let tile_line_data_start_address =
                 sprite_tile_address + (sprite_line_offset as Word * 2);
-            let pixel_1 = self.vram[(tile_line_data_start_address - VRAM_START) as usize];
-            let pixel_2 = self.vram[(tile_line_data_start_address + 1 - VRAM_START) as usize];
+            let pixel_1 = self.vram_read(tile_line_data_start_address, 0);
+            let pixel_2 = self.vram_read(tile_line_data_start_address + 1, 0);
 
             let palette = match sprite.palette() {
                 ObjectPalette::Obp0 => Palette(self.obp0),
@@ -565,22 +565,24 @@ impl Ppu {
             self.ocps += 1;
         }
     }
+
+    fn vram_read(&self, address: Word, vram_bank: usize) -> Byte {
+        let index = VRAM_BANK_SIZE * vram_bank + (address - VRAM_START) as usize;
+        self.vram[index]
+    }
+
+    fn vram_write(&mut self, address: Word, data: Byte, vram_bank: usize) {
+        let index = VRAM_BANK_SIZE * vram_bank + (address - VRAM_START) as usize;
+        self.vram[index] = data;
+    }
 }
 
 impl Memory for Ppu {
     fn read(&self, address: Word) -> Byte {
         match address {
             // TODO: VRAM/OAM disable access to CPU after timings are perfect
-            VRAM_START..=VRAM_END /*if self.stat.mode() != LcdStatus::Rendering*/ => {
-                let index = VRAM_BANK_SIZE * (self.vram_bank & 0b1) + (address - VRAM_START) as usize;
-                self.vram[index]
-            }
-            OAM_START..=OAM_END
-            /*if self.stat.mode() != LcdStatus::OamSearch
-                || self.stat.mode() != LcdStatus::Rendering */ =>
-                {
-                    self.oam[(address - OAM_START) as usize]
-                }
+            VRAM_START..=VRAM_END => self.vram_read(address, self.vram_bank & 0b1),
+            OAM_START..=OAM_END => self.oam[(address - OAM_START) as usize],
             LCDC_ADDRESS => self.lcdc.0,
             STAT_ADDRESS => self.stat.0,
             SCY_ADDRESS => self.scy,
@@ -603,10 +605,7 @@ impl Memory for Ppu {
 
     fn write(&mut self, address: Word, data: Byte) {
         match address {
-            VRAM_START..=VRAM_END /* if self.stat.mode() != LcdStatus::Rendering */ => {
-                let index = VRAM_BANK_SIZE * (self.vram_bank & 0b1) + (address - VRAM_START) as usize;
-                self.vram[index] = data
-            }
+            VRAM_START..=VRAM_END => self.vram_write(address, data, self.vram_bank & 0b1),
             OAM_START..=OAM_END
             // if self.stat.mode() != LcdStatus::OamSearch
             //     || self.stat.mode() != LcdStatus::Rendering

@@ -187,7 +187,7 @@ impl Mmu {
             OAM_DMA_ADDRESS => return 0xFF, // TODO: Check if this is correct
             PPU_REGISTERS_START..=PPU_REGISTERS_END => return self.ppu.borrow().read(address),
             VRAM_BANK_ADDRESS => return self.ppu.borrow().read(address),
-            BOOTROM_DISABLE => return if self.bootrom_enabled { 0x01 } else { 0x00 },
+            BOOTROM_DISABLE => return u8::from(self.bootrom_enabled),
             VRAM_DMA_START..=VRAM_DMA_END => {}
             PALETTE_START..=PALETTE_END => return self.ppu.borrow().read(address),
             WRAM_BANK_SELECT => return self.wram_bank as Byte,
@@ -208,7 +208,7 @@ impl Mmu {
             }
             + (address - WRAM_FIXED_START) as usize;
 
-        return self.wram[index];
+        self.wram[index]
     }
 
     fn wram_banked_write(&mut self, address: Word, data: Byte) {
@@ -285,7 +285,7 @@ impl Memory for Mmu {
     /// CPU during each memory access
     fn read(&self, address: Word) -> Byte {
         self.tick();
-        let value = if self.oam_dma_in_progress() {
+        if self.oam_dma_in_progress() {
             // Only HRAM is accessible during OAM DMA
             if (HRAM_START..=HRAM_END).contains(&address) {
                 self.hram[address as usize - 0xFF80]
@@ -294,9 +294,7 @@ impl Memory for Mmu {
             }
         } else {
             self.raw_read(address)
-        };
-
-        value
+        }
     }
 
     fn write(&mut self, address: Word, data: Byte) {

@@ -180,16 +180,14 @@ impl Mbc1 {
                 ram_size
             );
             ram = Some(vec![0xFF; ram_size as usize]);
-        } else {
-            if let Some(r) = ram.as_ref() {
-                if r.len() != ram_size as usize {
-                    log::error!(
-                        "Provided RAM size {} does not match what was expected {}",
-                        r.len(),
-                        ram_size
-                    );
-                    ram = Some(vec![0xFF; ram_size as usize]);
-                }
+        } else if let Some(r) = ram.as_ref() {
+            if r.len() != ram_size as usize {
+                log::error!(
+                    "Provided RAM size {} does not match what was expected {}",
+                    r.len(),
+                    ram_size
+                );
+                ram = Some(vec![0xFF; ram_size as usize]);
             }
         }
 
@@ -368,16 +366,14 @@ impl Mbc5 {
                 ram_size
             );
             ram = Some(vec![0xFF; ram_size as usize]);
-        } else {
-            if let Some(r) = ram.as_ref() {
-                if r.len() != ram_size as usize {
-                    log::error!(
-                        "Provided RAM size {} does not match what was expected {}",
-                        r.len(),
-                        ram_size
-                    );
-                    ram = Some(vec![0xFF; ram_size as usize]);
-                }
+        } else if let Some(r) = ram.as_ref() {
+            if r.len() != ram_size as usize {
+                log::error!(
+                    "Provided RAM size {} does not match what was expected {}",
+                    r.len(),
+                    ram_size
+                );
+                ram = Some(vec![0xFF; ram_size as usize]);
             }
         }
 
