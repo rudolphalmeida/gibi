@@ -8,6 +8,7 @@ mod interrupts;
 pub mod joypad;
 mod memory;
 mod mmu;
+mod palettes;
 pub mod ppu;
 mod serial;
 mod timer;

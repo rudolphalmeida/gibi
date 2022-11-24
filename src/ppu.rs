@@ -2,6 +2,7 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use crate::interrupts::{InterruptHandler, InterruptType};
+use crate::palettes::{Palette, RGBA_WHITE};
 use crate::utils::{bit_value, Cycles};
 use crate::{
     memory::Memory,
@@ -278,12 +279,12 @@ impl Ppu {
         if self.lcdc.bg_and_window_enabled() {
             self.render_background_line();
         } else {
-            let palette = Palette::new(self.bgp);
+            let palette = Palette::new_greyscale(self.bgp);
             let row_first_index = self.ly as usize * LCD_WIDTH as usize * 4;
             let row_last_index = (self.ly + 1) as usize * LCD_WIDTH as usize * 4 - 1;
 
             for pixel in self.framebuffer[row_first_index..=row_last_index].chunks_mut(4) {
-                pixel.copy_from_slice(palette.color0());
+                pixel.copy_from_slice(&palette.color0());
             }
         }
 
@@ -297,8 +298,6 @@ impl Ppu {
     }
 
     fn render_background_line(&mut self) {
-        let palette = Palette::new(self.bgp);
-
         let tileset_address = self.lcdc.bg_and_window_tiledata_area() as usize;
         let tilemap_address = self.lcdc.bg_tilemap_area() as usize;
 
@@ -323,7 +322,15 @@ impl Ppu {
 
             let tile_index = tile_y * TILES_PER_LINE + tile_x;
             let tile_index_address = tilemap_address + tile_index;
-            let tile_id = self.vram[tile_index_address - VRAM_START as usize];
+
+            let tile_id = self.vram[vram_index(tile_index_address as Word, 0)];
+            let tile_attr = self.vram[vram_index(tile_index_address as Word, 1)];
+            // TODO: Use more of the BG tile attributes
+
+            let bg_palette_number = tile_attr as usize & 0b111;
+            let palette_spec =
+                &self.color_bg_palettes[(bg_palette_number * 8)..((bg_palette_number + 1) * 8)];
+            let palette = Palette::new_color(palette_spec);
 
             let tiledata_mem_offset = match self.lcdc.bg_and_window_tiledata_area() {
                 TiledataAddressingMode::Signed => {
@@ -335,17 +342,17 @@ impl Ppu {
             let tile_line_data_start_address =
                 tileset_address + tiledata_mem_offset + tiledata_line_offset;
 
-            let pixel_1 = self.vram[tile_line_data_start_address - VRAM_START as usize];
-            let pixel_2 = self.vram[tile_line_data_start_address + 1 - VRAM_START as usize];
+            let pixel_1 = self.vram[vram_index(tile_line_data_start_address as Word, 0)];
+            let pixel_2 = self.vram[vram_index(tile_line_data_start_address as Word + 1, 0)];
 
             let color_id = (bit_value(pixel_2, 7 - tile_pixel_x as Byte) << 1)
                 | bit_value(pixel_1, 7 - tile_pixel_x as Byte);
-            pixel.copy_from_slice(palette.actual_color_from_index(color_id));
+            pixel.copy_from_slice(&palette.actual_color_from_index(color_id));
         }
     }
 
     fn render_window_line(&mut self) {
-        let palette = Palette::new(self.bgp);
+        let palette = Palette::new_greyscale(self.bgp);
 
         let tileset_address = self.lcdc.bg_and_window_tiledata_area() as usize;
         let tilemap_address = self.lcdc.window_tilemap_area() as usize;
@@ -403,12 +410,12 @@ impl Ppu {
             let tile_line_data_start_address =
                 tileset_address + tiledata_mem_offset + tiledata_line_offset;
 
-            let pixel_1 = self.vram[tile_line_data_start_address - VRAM_START as usize];
-            let pixel_2 = self.vram[tile_line_data_start_address + 1 - VRAM_START as usize];
+            let pixel_1 = self.vram[vram_index(tile_line_data_start_address as Word, 0)];
+            let pixel_2 = self.vram[vram_index(tile_line_data_start_address as Word + 1, 0)];
 
             let color_id = (bit_value(pixel_2, 7 - tile_pixel_x as Byte) << 1)
                 | bit_value(pixel_1, 7 - tile_pixel_x as Byte);
-            pixel.copy_from_slice(palette.actual_color_from_index(color_id));
+            pixel.copy_from_slice(&palette.actual_color_from_index(color_id));
         }
     }
 
@@ -444,12 +451,12 @@ impl Ppu {
 
             let tile_line_data_start_address =
                 sprite_tile_address + (sprite_line_offset as Word * 2);
-            let pixel_1 = self.vram_read(tile_line_data_start_address, 0);
-            let pixel_2 = self.vram_read(tile_line_data_start_address + 1, 0);
+            let pixel_1 = self.vram[vram_index(tile_line_data_start_address, 0)];
+            let pixel_2 = self.vram[vram_index(tile_line_data_start_address + 1, 0)];
 
             let palette = match sprite.palette() {
-                ObjectPalette::Obp0 => Palette(self.obp0),
-                ObjectPalette::Obp1 => Palette(self.obp1),
+                ObjectPalette::Obp0 => Palette::new_greyscale(self.obp0),
+                ObjectPalette::Obp1 => Palette::new_greyscale(self.obp1),
             };
 
             // Sprite is hidden beyond the screen
@@ -492,10 +499,10 @@ impl Ppu {
                 if color_id != 0b00 {
                     if sprite.bg_window_over_sprite() {
                         if pixel == RGBA_WHITE {
-                            pixel.copy_from_slice(palette.actual_color_from_index(color_id));
+                            pixel.copy_from_slice(&palette.actual_color_from_index(color_id));
                         }
                     } else {
-                        pixel.copy_from_slice(palette.actual_color_from_index(color_id));
+                        pixel.copy_from_slice(&palette.actual_color_from_index(color_id));
                     };
                 }
             }
@@ -565,23 +572,13 @@ impl Ppu {
             self.ocps += 1;
         }
     }
-
-    fn vram_read(&self, address: Word, vram_bank: usize) -> Byte {
-        let index = VRAM_BANK_SIZE * vram_bank + (address - VRAM_START) as usize;
-        self.vram[index]
-    }
-
-    fn vram_write(&mut self, address: Word, data: Byte, vram_bank: usize) {
-        let index = VRAM_BANK_SIZE * vram_bank + (address - VRAM_START) as usize;
-        self.vram[index] = data;
-    }
 }
 
 impl Memory for Ppu {
     fn read(&self, address: Word) -> Byte {
         match address {
             // TODO: VRAM/OAM disable access to CPU after timings are perfect
-            VRAM_START..=VRAM_END => self.vram_read(address, self.vram_bank & 0b1),
+            VRAM_START..=VRAM_END => self.vram[vram_index(address, self.vram_bank & 0b1)],
             OAM_START..=OAM_END => self.oam[(address - OAM_START) as usize],
             LCDC_ADDRESS => self.lcdc.0,
             STAT_ADDRESS => self.stat.0,
@@ -605,14 +602,8 @@ impl Memory for Ppu {
 
     fn write(&mut self, address: Word, data: Byte) {
         match address {
-            VRAM_START..=VRAM_END => self.vram_write(address, data, self.vram_bank & 0b1),
-            OAM_START..=OAM_END
-            // if self.stat.mode() != LcdStatus::OamSearch
-            //     || self.stat.mode() != LcdStatus::Rendering
-            =>
-                {
-                    self.oam[(address - OAM_START) as usize] = data
-                }
+            VRAM_START..=VRAM_END => self.vram[vram_index(address, self.vram_bank & 0b1)] = data,
+            OAM_START..=OAM_END => self.oam[(address - OAM_START) as usize] = data,
             LCDC_ADDRESS => self.lcdc.0 = data,
             // Ignore bit 7 as it is not used and don't set status or lyc=ly on write
             STAT_ADDRESS => self.stat.0 = ((data & 0x78) | (self.stat.0 & 0x7)) & 0x7F,
@@ -629,13 +620,17 @@ impl Memory for Ppu {
             WY_ADDRESS => self.wy = data,
             WX_ADDRESS => self.wx = data,
             VRAM_BANK_ADDRESS => self.vram_bank = 0xFE | (data as usize & 0b1),
-            BCPS_ADDRESS => self.bcps = data & !(0x1 << 6),  // Ignore bit 6
+            BCPS_ADDRESS => self.bcps = data & !(0x1 << 6), // Ignore bit 6
             BCPD_ADDRESS => self.bcp_write(data),
-            OCPS_ADDRESS => self.ocps = data & !(0x1 << 6),  // Ignore bit 6
+            OCPS_ADDRESS => self.ocps = data & !(0x1 << 6), // Ignore bit 6
             OCPD_ADDRESS => self.ocp_write(data),
             _ => {}
         }
     }
+}
+
+fn vram_index(address: Word, bank: usize) -> usize {
+    VRAM_BANK_SIZE * bank + (address - VRAM_START) as usize
 }
 
 // OAM Sprites
@@ -811,74 +806,5 @@ impl LcdStat {
             LcdStatus::OamSearch => self.is_stat_interrupt_source_enabled(LcdStatSource::Mode2Oam),
             LcdStatus::Rendering => false,
         }
-    }
-}
-
-enum GameboyColorShade {
-    White = 0,
-    LightGray = 1,
-    DarkGray = 2,
-    Black = 3,
-}
-
-impl GameboyColorShade {
-    pub fn new(bits: Byte) -> Self {
-        match bits {
-            0 => GameboyColorShade::White,
-            1 => GameboyColorShade::LightGray,
-            2 => GameboyColorShade::DarkGray,
-            3 => GameboyColorShade::Black,
-            _ => panic!("Invalid bits for Color shade"),
-        }
-    }
-}
-
-// TODO: Make this configurable by the GUI
-const RGBA_WHITE: [Byte; 4] = [0xE0, 0xF8, 0xD0, 0xFF];
-const RGBA_LIGHT_GRAY: [Byte; 4] = [0x88, 0xC0, 0x70, 0xFF];
-const RGBA_DARK_GRAY: [Byte; 4] = [0x34, 0x68, 0x56, 0xFF];
-const RGBA_BLACK: [Byte; 4] = [0x08, 0x18, 0x20, 0xFF];
-
-fn map_to_actual_color(shade: GameboyColorShade) -> &'static [Byte; 4] {
-    match shade {
-        GameboyColorShade::White => &RGBA_WHITE,
-        GameboyColorShade::LightGray => &RGBA_LIGHT_GRAY,
-        GameboyColorShade::DarkGray => &RGBA_DARK_GRAY,
-        GameboyColorShade::Black => &RGBA_BLACK,
-    }
-}
-
-/// Convenience struct to get a color from a palette register
-struct Palette(Byte);
-
-impl Palette {
-    pub fn new(value: Byte) -> Self {
-        Palette(value)
-    }
-
-    pub fn actual_color_from_index(&self, index: Byte) -> &[Byte; 4] {
-        match index {
-            0 => self.color0(),
-            1 => self.color1(),
-            2 => self.color2(),
-            3 => self.color3(),
-            _ => panic!("Invalid index for color palette {}", index),
-        }
-    }
-
-    pub fn color0(&self) -> &[Byte; 4] {
-        map_to_actual_color(GameboyColorShade::new(self.0 & 0x03))
-    }
-
-    pub fn color1(&self) -> &[Byte; 4] {
-        map_to_actual_color(GameboyColorShade::new((self.0 & 0x0C) >> 2))
-    }
-
-    pub fn color2(&self) -> &[Byte; 4] {
-        map_to_actual_color(GameboyColorShade::new((self.0 & 0x30) >> 4))
-    }
-
-    pub fn color3(&self) -> &[Byte; 4] {
-        map_to_actual_color(GameboyColorShade::new((self.0 & 0xC0) >> 6))
     }
 }
