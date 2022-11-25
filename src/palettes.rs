@@ -46,7 +46,13 @@ fn extract_actual_color_from_spec(spec: &[Byte; 8], index: usize) -> [Byte; 4] {
     let g = ((color_byte_2 & 0b11) << 3) | ((color_byte_1 & 0b11100000) >> 5);
     let b = (color_byte_2 & 0b001111100) >> 2;
 
-    [r, g, b, 0xFF]
+    // RGB555 to RGB888: https://stackoverflow.com/a/4409837/4681203
+    [
+        (r << 3) | (r >> 2),
+        (g << 3) | (g >> 2),
+        (b << 3) | (b >> 2),
+        0xFF,
+    ]
 }
 
 pub(crate) enum Palette {

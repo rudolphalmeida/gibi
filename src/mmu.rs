@@ -206,7 +206,7 @@ impl Mmu {
             } else {
                 self.wram_bank
             }
-            + (address - WRAM_FIXED_START) as usize;
+            + (address - WRAM_BANKED_START) as usize;
 
         self.wram[index]
     }
@@ -219,7 +219,7 @@ impl Mmu {
             } else {
                 self.wram_bank
             }
-            + (address - WRAM_FIXED_START) as usize;
+            + (address - WRAM_BANKED_START) as usize;
 
         self.wram[index] = data
     }

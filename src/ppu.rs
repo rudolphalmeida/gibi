@@ -149,8 +149,8 @@ impl Ppu {
             obp1: 0x00,
             bcps: 0x00,
             ocps: 0x00,
-            color_bg_palettes: [0x00; COLOR_PALETTE_SIZE],
-            color_obj_palettes: [0x00; COLOR_PALETTE_SIZE],
+            color_bg_palettes: [0xFF; COLOR_PALETTE_SIZE],
+            color_obj_palettes: [0xFF; COLOR_PALETTE_SIZE],
             interrupts,
             framebuffer,
         }
@@ -327,6 +327,8 @@ impl Ppu {
             let tile_attr = self.vram[vram_index(tile_index_address as Word, 1)];
             // TODO: Use more of the BG tile attributes
 
+            let tile_data_vram_bank = ((tile_attr & 8) >> 3) as usize;
+
             let bg_palette_number = tile_attr as usize & 0b111;
             let palette_spec =
                 &self.color_bg_palettes[(bg_palette_number * 8)..((bg_palette_number + 1) * 8)];
@@ -342,8 +344,12 @@ impl Ppu {
             let tile_line_data_start_address =
                 tileset_address + tiledata_mem_offset + tiledata_line_offset;
 
-            let pixel_1 = self.vram[vram_index(tile_line_data_start_address as Word, 0)];
-            let pixel_2 = self.vram[vram_index(tile_line_data_start_address as Word + 1, 0)];
+            let pixel_1 =
+                self.vram[vram_index(tile_line_data_start_address as Word, tile_data_vram_bank)];
+            let pixel_2 = self.vram[vram_index(
+                tile_line_data_start_address as Word + 1,
+                tile_data_vram_bank,
+            )];
 
             let color_id = (bit_value(pixel_2, 7 - tile_pixel_x as Byte) << 1)
                 | bit_value(pixel_1, 7 - tile_pixel_x as Byte);
@@ -398,7 +404,7 @@ impl Ppu {
 
             let tile_index = tile_y * TILES_PER_LINE + tile_x;
             let tile_index_address = tilemap_address + tile_index;
-            let tile_id = self.vram[tile_index_address - VRAM_START as usize];
+            let tile_id = self.vram[vram_index(tile_index_address as Word, 0)];
 
             let tiledata_mem_offset = match self.lcdc.bg_and_window_tiledata_area() {
                 TiledataAddressingMode::Signed => {
@@ -431,6 +437,11 @@ impl Ppu {
         // Drawing in reverse will handle condition 2. For condition 1, the `get_sprites` function
         // should have sorted the sprites in increasing order of the X-coord if we are DMG mode
         for sprite in sprites.iter().rev() {
+            // Sprite is hidden beyond the screen
+            if sprite.x == 0 || sprite.x >= 168 {
+                continue;
+            }
+
             // Sprites always use the 0x8000 unsigned addressing mode
             let sprite_tile_address = match self.lcdc.sprite_height() {
                 SpriteHeight::Short => sprite.tile_index,
@@ -451,18 +462,19 @@ impl Ppu {
 
             let tile_line_data_start_address =
                 sprite_tile_address + (sprite_line_offset as Word * 2);
-            let pixel_1 = self.vram[vram_index(tile_line_data_start_address, 0)];
-            let pixel_2 = self.vram[vram_index(tile_line_data_start_address + 1, 0)];
 
-            let palette = match sprite.palette() {
-                ObjectPalette::Obp0 => Palette::new_greyscale(self.obp0),
-                ObjectPalette::Obp1 => Palette::new_greyscale(self.obp1),
+            let obj_palette_number = if let ObjectPalette::ColorPalette(value) = sprite.palette() {
+                value as usize
+            } else {
+                0x0
             };
+            let palette_spec =
+                &self.color_obj_palettes[(obj_palette_number * 8)..((obj_palette_number + 1) * 8)];
+            let palette = Palette::new_color(palette_spec);
 
-            // Sprite is hidden beyond the screen
-            if sprite.x == 0 || sprite.x >= 168 {
-                continue;
-            }
+            let pixel_1 = self.vram[vram_index(tile_line_data_start_address, sprite.vram_bank())];
+            let pixel_2 =
+                self.vram[vram_index(tile_line_data_start_address + 1, sprite.vram_bank())];
 
             // The sprite is partially hidden on the left
             let (visible_column_start, visible_column_end, screen_x_start) = if sprite.x < 8 {
@@ -523,7 +535,7 @@ impl Ppu {
         // Sorting by the X coordinate will take care of the first condition for DMG where the
         // sprite with the lower X coordinate has higher priority and is drawn over
         // TODO: This should be skipped when running in CGB mode
-        sprites.sort_by(|sprite1, sprite2| sprite1.x.cmp(&sprite2.x));
+        // sprites.sort_by(|sprite1, sprite2| sprite1.x.cmp(&sprite2.x));
 
         sprites
     }
@@ -644,6 +656,7 @@ struct Sprite {
 enum ObjectPalette {
     Obp0,
     Obp1,
+    ColorPalette(Byte),
 }
 
 impl Sprite {
@@ -668,12 +681,18 @@ impl Sprite {
         self.attrs & 0x20 != 0
     }
 
+    pub fn vram_bank(&self) -> usize {
+        ((self.attrs & 8) >> 3) as usize
+    }
+
     pub fn palette(&self) -> ObjectPalette {
-        if self.attrs & 0x10 != 0 {
-            ObjectPalette::Obp1
-        } else {
-            ObjectPalette::Obp0
-        }
+        // Only run this if running in DMG-mode
+        // if self.attrs & 0x10 != 0 {
+        //     ObjectPalette::Obp1
+        // } else {
+        //     ObjectPalette::Obp0
+        // }
+        ObjectPalette::ColorPalette(self.attrs & 0b111)
     }
 }
 
