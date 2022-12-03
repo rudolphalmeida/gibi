@@ -38,13 +38,13 @@ fn extract_actual_color_from_spec(spec: &[Byte; 8], index: usize) -> [Byte; 4] {
     let color_byte_1 = spec[index * 2];
     let color_byte_2 = spec[index * 2 + 1];
 
-    // GGGRRRRR             |  XXBBBBBGG
+    // GGGRRRRR             |  XBBBBBGG
     // Color 1              |  Color 2
     // Red and Lower Green  |  Upper Green and Blue
 
     let r = color_byte_1 & 0b11111;
     let g = ((color_byte_2 & 0b11) << 3) | ((color_byte_1 & 0b11100000) >> 5);
-    let b = (color_byte_2 & 0b001111100) >> 2;
+    let b = (color_byte_2 & 0b01111100) >> 2;
 
     // RGB555 to RGB888: https://stackoverflow.com/a/4409837/4681203
     [

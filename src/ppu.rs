@@ -276,19 +276,9 @@ impl Ppu {
             return;
         }
 
-        if self.lcdc.bg_and_window_enabled() {
-            self.render_background_line();
-        } else {
-            let palette = Palette::new_greyscale(self.bgp);
-            let row_first_index = self.ly as usize * LCD_WIDTH as usize * 4;
-            let row_last_index = (self.ly + 1) as usize * LCD_WIDTH as usize * 4 - 1;
+        self.render_background_line();
 
-            for pixel in self.framebuffer[row_first_index..=row_last_index].chunks_mut(4) {
-                pixel.copy_from_slice(&palette.color0());
-            }
-        }
-
-        if self.lcdc.bg_and_window_enabled() && self.lcdc.window_enabled() {
+        if self.lcdc.window_enabled() {
             self.render_window_line();
         }
 
@@ -317,9 +307,6 @@ impl Ppu {
             let tile_x = bg_map_x / TILE_WIDTH_PX;
             let tile_y = bg_map_y / TILE_HEIGHT_PX;
 
-            let tile_pixel_x = bg_map_x % TILE_WIDTH_PX;
-            let tile_pixel_y = bg_map_y % TILE_HEIGHT_PX;
-
             let tile_index = tile_y * TILES_PER_LINE + tile_x;
             let tile_index_address = tilemap_address + tile_index;
 
@@ -328,6 +315,20 @@ impl Ppu {
             // TODO: Use more of the BG tile attributes
 
             let tile_data_vram_bank = ((tile_attr & 8) >> 3) as usize;
+
+            // Vertical flip
+            let tile_pixel_y = if (tile_attr & 0x40) != 0 {
+                TILE_HEIGHT_PX - (bg_map_y % TILE_HEIGHT_PX) - 1
+            } else {
+                bg_map_y % TILE_HEIGHT_PX
+            };
+
+            // Horizontal flip
+            let tile_pixel_x = if (tile_attr & 0x20) != 0 {
+                TILE_WIDTH_PX - (bg_map_x % TILE_WIDTH_PX) - 1
+            } else {
+                bg_map_x % TILE_WIDTH_PX
+            };
 
             let bg_palette_number = tile_attr as usize & 0b111;
             let palette_spec =
@@ -379,8 +380,6 @@ impl Ppu {
                 0
             }
         } as usize;
-
-        // let window_y = (self.ly - self.wy) as usize;
 
         let window_x_start = if self.wx < 7 { 7 - self.wx } else { 0x00 } as usize;
         let screen_x_start = self.wx.saturating_sub(7) as usize;
@@ -571,6 +570,7 @@ impl Ppu {
         self.color_bg_palettes[(self.bcps & 0x1F) as usize] = data;
         if self.bcps & 0x80 != 0 {
             self.bcps += 1;
+            self.bcps &= 0x9F;
         }
     }
 
@@ -582,6 +582,7 @@ impl Ppu {
         self.color_obj_palettes[(self.ocps & 0x1F) as usize] = data;
         if self.ocps & 0x80 != 0 {
             self.ocps += 1;
+            self.ocps &= 0x9F;
         }
     }
 }
@@ -682,7 +683,7 @@ impl Sprite {
     }
 
     pub fn vram_bank(&self) -> usize {
-        ((self.attrs & 8) >> 3) as usize
+        ((self.attrs & 0x8) >> 3) as usize
     }
 
     pub fn palette(&self) -> ObjectPalette {
