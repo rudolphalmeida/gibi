@@ -124,6 +124,7 @@ impl Cpu {
 
         match opcode_byte {
             0x00 => {} // NOP
+            0x10 => self.stop(),
             0x01 | 0x11 | 0x21 | 0x31 => self.ld_r16_u16(opcode_byte),
             0x80..=0xBF => self.alu_a_r8(opcode_byte),
             0xC6 | 0xD6 | 0xE6 | 0xF6 | 0xCE | 0xDE | 0xEE | 0xFE => self.alu_a_u8(opcode_byte),
@@ -183,6 +184,10 @@ impl Cpu {
     }
 
     // Opcode Implementations
+    fn stop(&mut self) {
+        todo!()
+    }
+
     fn ld_r16_u16(&mut self, opcode: Byte) {
         let lower = self.fetch();
         let upper = self.fetch();

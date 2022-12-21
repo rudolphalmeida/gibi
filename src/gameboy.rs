@@ -70,7 +70,9 @@ impl Gameboy {
 
     pub fn run_one_frame(&mut self) {
         let machine_cycles = self.mmu.borrow().cpu_m_cycles.get();
-        let target_machine_cycles = machine_cycles + CYCLES_PER_FRAME - self.carry_over_cycles;
+        let target_machine_cycles = machine_cycles
+            + CYCLES_PER_FRAME * self.mmu.borrow().speed_multiplier()
+            - self.carry_over_cycles;
 
         while self.mmu.borrow().cpu_m_cycles.get() < target_machine_cycles {
             self.cpu.execute();

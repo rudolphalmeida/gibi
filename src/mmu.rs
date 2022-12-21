@@ -38,6 +38,8 @@ const WRAM_ECHO_END: Word = 0xFDFF;
 const UNUSED_START: Word = 0xFEA0;
 const UNUSED_END: Word = 0xFEFF;
 
+const KEY1: Word = 0xFF4D;
+
 const BOOTROM_DISABLE: Word = 0xFF50;
 
 const VRAM_DMA_START: Word = 0xFF51;
@@ -79,6 +81,7 @@ pub(crate) struct Mmu {
     /// M-cycles taken by the CPU since start of execution. This will take a
     /// long time to overflow
     pub cpu_m_cycles: Cell<Cycles>,
+    key1: Byte,
 
     // DMAs
     oam_dma: RefCell<Option<OamDma>>,
@@ -99,7 +102,9 @@ impl Mmu {
         let hram = [0x00; HRAM_SIZE];
         let serial = Serial::new();
         let timer = RefCell::new(Timer::new(Rc::clone(&interrupts)));
+
         let cpu_m_cycles = Cell::new(0);
+        let key1 = 0x00;
 
         let bootrom_enabled = true;
         let oam_dma = RefCell::new(None);
@@ -120,6 +125,7 @@ impl Mmu {
             apu,
             interrupts,
             cpu_m_cycles,
+            key1,
             oam_dma,
         }
     }
@@ -131,7 +137,7 @@ impl Mmu {
 
         self.timer.borrow_mut().tick();
         self.joypad.borrow_mut().tick();
-        self.ppu.borrow_mut().tick();
+        self.ppu.borrow_mut().tick(self.speed_multiplier());
         self.apu.borrow_mut().tick();
     }
 
@@ -187,6 +193,7 @@ impl Mmu {
             OAM_DMA_ADDRESS => return 0xFF, // TODO: Check if this is correct
             PPU_REGISTERS_START..=PPU_REGISTERS_END => return self.ppu.borrow().read(address),
             VRAM_BANK_ADDRESS => return self.ppu.borrow().read(address),
+            KEY1 => return self.key1,
             BOOTROM_DISABLE => return u8::from(self.bootrom_enabled),
             VRAM_DMA_START..=VRAM_DMA_END => {}
             PALETTE_START..=PALETTE_END => return self.ppu.borrow().read(address),
@@ -256,6 +263,7 @@ impl Mmu {
             }
             PPU_REGISTERS_START..=PPU_REGISTERS_END => self.ppu.borrow_mut().write(address, data),
             VRAM_BANK_ADDRESS => self.ppu.borrow_mut().write(address, data),
+            KEY1 => self.key1 = (self.key1 & 0x80) | (data & 0x7F),
             BOOTROM_DISABLE => self.disable_bootrom(data),
             VRAM_DMA_START..=VRAM_DMA_END => {}
             PALETTE_START..=PALETTE_END => self.ppu.borrow_mut().write(address, data),
@@ -275,6 +283,22 @@ impl Mmu {
 
     pub fn save_ram(&self) -> Option<&Vec<Byte>> {
         self.cart.save_ram()
+    }
+
+    pub fn speed_multiplier(&self) -> Cycles {
+        if self.key1 & 0x80 != 0 {
+            2
+        } else {
+            1
+        }
+    }
+
+    fn preparing_speed_switch(&self) -> bool {
+        self.key1 & 0x1 != 0
+    }
+
+    pub fn switch_speed(&mut self) {
+        todo!()
     }
 }
 

@@ -42,7 +42,7 @@ pub(crate) const BCPD_ADDRESS: Word = 0xFF69;
 pub(crate) const OCPS_ADDRESS: Word = 0xFF6A;
 pub(crate) const OCPD_ADDRESS: Word = 0xFF6B;
 
-pub(crate) const DOTS_PER_TICK: i32 = 4;
+pub(crate) const DOTS_PER_TICK: Cycles = 4;
 pub(crate) const OAM_DMA_CYCLES: Cycles = 160;
 
 const BG_MAP_SIZE: usize = 256;
@@ -156,8 +156,12 @@ impl Ppu {
         }
     }
 
-    pub fn tick(&mut self) {
-        for _ in 0..DOTS_PER_TICK {
+    pub fn tick(&mut self, speed_divider: Cycles) {
+        // Tick 4 times if single speed mode and 2 times if double speed mode
+        // The LCD controller speed does not change with the speed mode
+        // TODO: Do this only for CGB
+        let cycles_to_tick = DOTS_PER_TICK / speed_divider;
+        for _ in 0..cycles_to_tick {
             self.dots_in_line += 1;
 
             match self.stat.mode() {
