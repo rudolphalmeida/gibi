@@ -1,6 +1,7 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
+use crate::cartridge::HardwareSupport;
 use crate::interrupts::{InterruptHandler, InterruptType};
 use crate::palettes::{Palette, RGBA_WHITE};
 use crate::utils::{bit_value, Cycles};
@@ -116,10 +117,15 @@ pub(crate) struct Ppu {
     interrupts: Rc<RefCell<InterruptHandler>>,
 
     framebuffer: [Byte; (LCD_WIDTH * LCD_HEIGHT * 4) as usize],
+
+    hardware_supported: HardwareSupport,
 }
 
 impl Ppu {
-    pub fn new(interrupts: Rc<RefCell<InterruptHandler>>) -> Self {
+    pub fn new(
+        interrupts: Rc<RefCell<InterruptHandler>>,
+        hardware_supported: HardwareSupport,
+    ) -> Self {
         let vram = [0xFF; VRAM_BANK_SIZE * 2];
         let vram_bank = 0xFE; // Bank 0. All other bits are 1
         let oam = [0xFF; OAM_SIZE];
@@ -153,6 +159,7 @@ impl Ppu {
             color_obj_palettes: [0xFF; COLOR_PALETTE_SIZE],
             interrupts,
             framebuffer,
+            hardware_supported,
         }
     }
 

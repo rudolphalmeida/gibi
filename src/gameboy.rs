@@ -41,7 +41,10 @@ impl Gameboy {
 
         let interrupts = Rc::new(RefCell::new(InterruptHandler::default()));
 
-        let ppu = Rc::new(RefCell::new(Ppu::new(Rc::clone(&interrupts))));
+        let ppu = Rc::new(RefCell::new(Ppu::new(
+            Rc::clone(&interrupts),
+            hardware_supported,
+        )));
         let apu = Rc::new(RefCell::new(Apu::new()));
         let joypad = Rc::new(RefCell::new(Joypad::new(Rc::clone(&interrupts))));
         let mmu = Rc::new(RefCell::new(Mmu::new(
