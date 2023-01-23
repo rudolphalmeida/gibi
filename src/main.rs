@@ -2,21 +2,21 @@ use std::collections::HashMap;
 use std::path::Path;
 
 use clap::Parser;
-
-use gibi::joypad::JoypadKeys;
-use sdl2::event::Event;
-use sdl2::keyboard::Keycode;
-use sdl2::pixels::{Color, PixelFormatEnum};
-use sdl2::render::{TextureAccess, TextureCreator};
-use sdl2::video::WindowContext;
-
-use gibi::{
-    gameboy::Gameboy,
-    ppu::{LCD_HEIGHT, LCD_WIDTH},
+use sdl2::{
+    event::Event,
+    keyboard::Keycode,
+    pixels::{Color, PixelFormatEnum},
+    render::{TextureAccess, TextureCreator},
+    video::WindowContext,
 };
 use spin_sleep::LoopHelper;
 
 use crate::options::Options;
+use gibi::{
+    gameboy::Gameboy,
+    joypad::JoypadKeys,
+    ppu::{LCD_HEIGHT, LCD_WIDTH},
+};
 
 mod options;
 
