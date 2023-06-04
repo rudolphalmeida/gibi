@@ -22,7 +22,7 @@ pub const CART_RAM_END: u16 = 0xBFFF;
 pub(crate) enum HardwareSupport {
     CgbOnly,
     DmgCgb,
-    DmgOnly,
+    DmgCompat,
 }
 
 pub(crate) trait Savable {
@@ -35,7 +35,7 @@ pub(crate) trait Cartridge: Memory + Mbc + Savable {
         match self.rom()[CGB_FLAG_ADDRESS as usize] {
             0x80 => HardwareSupport::DmgCgb,
             0xC0 => HardwareSupport::CgbOnly,
-            _ => HardwareSupport::DmgOnly,
+            _ => HardwareSupport::DmgCompat,
         }
     }
 }

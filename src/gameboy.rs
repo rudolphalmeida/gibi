@@ -35,7 +35,7 @@ impl Gameboy {
         match hardware_supported {
             HardwareSupport::CgbOnly => log::info!("Game supports CGB hardware only"),
             HardwareSupport::DmgCgb => log::info!("Game supports both CGB and DMG"),
-            HardwareSupport::DmgOnly => log::info!("Game is running in DMG compatability mode"),
+            HardwareSupport::DmgCompat => log::info!("Game is running in DMG compatability mode"),
         }
 
         let interrupts = Rc::new(RefCell::new(InterruptHandler::default()));
