@@ -1,8 +1,7 @@
 use crate::memory::Memory;
-use crate::utils::{Byte, Word};
 
-pub(crate) const INTERRUPT_FLAG_ADDRESS: Word = 0xFF0F;
-pub(crate) const INTERRUPT_ENABLE_ADDRESS: Word = 0xFFFF;
+pub(crate) const INTERRUPT_FLAG_ADDRESS: u16 = 0xFF0F;
+pub(crate) const INTERRUPT_ENABLE_ADDRESS: u16 = 0xFFFF;
 
 #[derive(Debug, Copy, Clone)]
 pub(crate) enum InterruptType {
@@ -25,13 +24,13 @@ impl InterruptType {
         }
     }
 
-    pub fn vector(&self) -> Word {
+    pub fn vector(&self) -> u16 {
         match self {
-            InterruptType::Vblank => InterruptVector::Vblank as Word,
-            InterruptType::LcdStat => InterruptVector::LcdStat as Word,
-            InterruptType::Timer => InterruptVector::Timer as Word,
-            InterruptType::Serial => InterruptVector::Serial as Word,
-            InterruptType::Joypad => InterruptVector::Joypad as Word,
+            InterruptType::Vblank => InterruptVector::Vblank as u16,
+            InterruptType::LcdStat => InterruptVector::LcdStat as u16,
+            InterruptType::Timer => InterruptVector::Timer as u16,
+            InterruptType::Serial => InterruptVector::Serial as u16,
+            InterruptType::Joypad => InterruptVector::Joypad as u16,
         }
     }
 }
@@ -46,30 +45,30 @@ pub(crate) enum InterruptVector {
 
 #[derive(Debug, Copy, Clone, Default)]
 pub(crate) struct InterruptHandler {
-    interrupt_enable: Byte,
-    interrupt_flag: Byte,
+    interrupt_enable: u8,
+    interrupt_flag: u8,
 }
 
 impl InterruptHandler {
     pub fn is_interrupt_enabled(&self, interrupt: InterruptType) -> bool {
-        self.interrupt_enable & interrupt as Byte != 0
+        self.interrupt_enable & interrupt as u8 != 0
     }
 
     pub fn disable_interrupt(&mut self, interrupt: InterruptType) {
-        self.interrupt_enable &= !(interrupt as Byte);
+        self.interrupt_enable &= !(interrupt as u8);
     }
 
     pub fn request_interrupt(&mut self, interrupt: InterruptType) {
-        self.interrupt_flag |= interrupt as Byte;
+        self.interrupt_flag |= interrupt as u8;
     }
 
     pub fn reset_interrupt_request(&mut self, interrupt: InterruptType) {
-        self.interrupt_flag &= !(interrupt as Byte);
+        self.interrupt_flag &= !(interrupt as u8);
     }
 }
 
 impl Memory for InterruptHandler {
-    fn read(&self, address: Word) -> Byte {
+    fn read(&self, address: u16) -> u8 {
         match address {
             INTERRUPT_FLAG_ADDRESS => self.interrupt_flag & 0x1F,
             INTERRUPT_ENABLE_ADDRESS => self.interrupt_enable & 0x1F,
@@ -77,7 +76,7 @@ impl Memory for InterruptHandler {
         }
     }
 
-    fn write(&mut self, address: Word, data: Byte) {
+    fn write(&mut self, address: u16, data: u8) {
         match address {
             INTERRUPT_FLAG_ADDRESS => self.interrupt_flag = data & 0x1F,
             INTERRUPT_ENABLE_ADDRESS => self.interrupt_enable = data & 0x1F,

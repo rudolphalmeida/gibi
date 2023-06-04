@@ -1,4 +1,4 @@
-use crate::utils::Byte;
+
 
 enum GameboyColorShade {
     White = 0,
@@ -8,7 +8,7 @@ enum GameboyColorShade {
 }
 
 impl GameboyColorShade {
-    pub fn new(bits: Byte) -> Self {
+    pub fn new(bits: u8) -> Self {
         match bits {
             0 => GameboyColorShade::White,
             1 => GameboyColorShade::LightGray,
@@ -20,12 +20,12 @@ impl GameboyColorShade {
 }
 
 // TODO: Make this configurable by the GUI
-pub(crate) const RGBA_WHITE: [Byte; 4] = [0xE0, 0xF8, 0xD0, 0xFF];
-pub(crate) const RGBA_LIGHT_GRAY: [Byte; 4] = [0x88, 0xC0, 0x70, 0xFF];
-pub(crate) const RGBA_DARK_GRAY: [Byte; 4] = [0x34, 0x68, 0x56, 0xFF];
-pub(crate) const RGBA_BLACK: [Byte; 4] = [0x08, 0x18, 0x20, 0xFF];
+pub(crate) const RGBA_WHITE: [u8; 4] = [0xE0, 0xF8, 0xD0, 0xFF];
+pub(crate) const RGBA_LIGHT_GRAY: [u8; 4] = [0x88, 0xC0, 0x70, 0xFF];
+pub(crate) const RGBA_DARK_GRAY: [u8; 4] = [0x34, 0x68, 0x56, 0xFF];
+pub(crate) const RGBA_BLACK: [u8; 4] = [0x08, 0x18, 0x20, 0xFF];
 
-fn map_to_actual_color(shade: GameboyColorShade) -> [Byte; 4] {
+fn map_to_actual_color(shade: GameboyColorShade) -> [u8; 4] {
     match shade {
         GameboyColorShade::White => RGBA_WHITE,
         GameboyColorShade::LightGray => RGBA_LIGHT_GRAY,
@@ -34,7 +34,7 @@ fn map_to_actual_color(shade: GameboyColorShade) -> [Byte; 4] {
     }
 }
 
-fn extract_actual_color_from_spec(spec: &[Byte; 8], index: usize) -> [Byte; 4] {
+fn extract_actual_color_from_spec(spec: &[u8; 8], index: usize) -> [u8; 4] {
     let color_byte_1 = spec[index * 2];
     let color_byte_2 = spec[index * 2 + 1];
 
@@ -56,23 +56,23 @@ fn extract_actual_color_from_spec(spec: &[Byte; 8], index: usize) -> [Byte; 4] {
 }
 
 pub(crate) enum Palette {
-    DmgGreyscale(Byte),
-    CgbColor([Byte; 8]),
+    DmgGreyscale(u8),
+    CgbColor([u8; 8]),
 }
 
 impl Palette {
-    pub fn new_greyscale(value: Byte) -> Self {
+    pub fn new_greyscale(value: u8) -> Self {
         Palette::DmgGreyscale(value)
     }
 
-    pub fn new_color(values: &[Byte]) -> Self {
+    pub fn new_color(values: &[u8]) -> Self {
         let mut palette = [0xFF; 8];
         palette.copy_from_slice(values);
 
         Palette::CgbColor(palette)
     }
 
-    pub fn actual_color_from_index(&self, index: Byte) -> [Byte; 4] {
+    pub fn actual_color_from_index(&self, index: u8) -> [u8; 4] {
         match index {
             0 => self.color0(),
             1 => self.color1(),
@@ -82,7 +82,7 @@ impl Palette {
         }
     }
 
-    pub fn color0(&self) -> [Byte; 4] {
+    pub fn color0(&self) -> [u8; 4] {
         match self {
             Palette::DmgGreyscale(value) => {
                 map_to_actual_color(GameboyColorShade::new(value & 0x03))
@@ -91,7 +91,7 @@ impl Palette {
         }
     }
 
-    pub fn color1(&self) -> [Byte; 4] {
+    pub fn color1(&self) -> [u8; 4] {
         match self {
             Palette::DmgGreyscale(value) => {
                 map_to_actual_color(GameboyColorShade::new((value & 0x0C) >> 2))
@@ -100,7 +100,7 @@ impl Palette {
         }
     }
 
-    pub fn color2(&self) -> [Byte; 4] {
+    pub fn color2(&self) -> [u8; 4] {
         match self {
             Palette::DmgGreyscale(value) => {
                 map_to_actual_color(GameboyColorShade::new((value & 0x30) >> 4))
@@ -109,7 +109,7 @@ impl Palette {
         }
     }
 
-    pub fn color3(&self) -> [Byte; 4] {
+    pub fn color3(&self) -> [u8; 4] {
         match self {
             Palette::DmgGreyscale(value) => {
                 map_to_actual_color(GameboyColorShade::new((value & 0xC0) >> 6))

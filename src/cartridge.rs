@@ -1,26 +1,22 @@
-use crate::utils::min_number_of_bits;
-use crate::{
-    memory::Memory,
-    utils::{Byte, Word},
-};
+use crate::{memory::Memory, min_number_of_bits};
 
-const CGB_FLAG_ADDRESS: Word = 0x143;
-const CARTRIDGE_TYPE_ADDRESS: Word = 0x147;
-const ROM_SIZE_ADDRESS: Word = 0x148;
+const CGB_FLAG_ADDRESS: u16 = 0x143;
+const CARTRIDGE_TYPE_ADDRESS: u16 = 0x147;
+const ROM_SIZE_ADDRESS: u16 = 0x148;
 const ROM_BANK_SIZE: u32 = 1024 * 16;
-const RAM_SIZE_ADDRESS: Word = 0x149;
+const RAM_SIZE_ADDRESS: u16 = 0x149;
 const RAM_BANK_SIZE: u32 = 1024 * 8;
 
-pub const BOOT_ROM_START: Word = 0x0000;
-pub const BOOT_ROM_END: Word = 0x08FF;
-pub const DMG_BOOT_ROM: &[Byte; 0x100] = include_bytes!("../roms/dmg_boot.bin");
-pub const CGB_BOOT_ROM: &[Byte; 0x900] = include_bytes!("../roms/cgb_boot.bin");
+pub const BOOT_ROM_START: u16 = 0x0000;
+pub const BOOT_ROM_END: u16 = 0x08FF;
+pub const DMG_BOOT_ROM: &[u8; 0x100] = include_bytes!("../roms/dmg_boot.bin");
+pub const CGB_BOOT_ROM: &[u8; 0x900] = include_bytes!("../roms/cgb_boot.bin");
 
-pub const CART_ROM_START: Word = 0x0000;
-pub const CART_ROM_END: Word = 0x7FFF;
+pub const CART_ROM_START: u16 = 0x0000;
+pub const CART_ROM_END: u16 = 0x7FFF;
 
-pub const CART_RAM_START: Word = 0xA000;
-pub const CART_RAM_END: Word = 0xBFFF;
+pub const CART_RAM_START: u16 = 0xA000;
+pub const CART_RAM_END: u16 = 0xBFFF;
 
 #[derive(Debug, Copy, Clone)]
 pub(crate) enum HardwareSupport {
@@ -31,7 +27,7 @@ pub(crate) enum HardwareSupport {
 
 pub(crate) trait Savable {
     fn savable(&self) -> bool;
-    fn save_ram(&self) -> Option<&Vec<Byte>>;
+    fn save_ram(&self) -> Option<&Vec<u8>>;
 }
 
 pub(crate) trait Cartridge: Memory + Mbc + Savable {
@@ -44,7 +40,7 @@ pub(crate) trait Cartridge: Memory + Mbc + Savable {
     }
 }
 
-pub(crate) fn init_mbc_from_rom(rom: Vec<Byte>, ram: Option<Vec<Byte>>) -> Box<dyn Cartridge> {
+pub(crate) fn init_mbc_from_rom(rom: Vec<u8>, ram: Option<Vec<u8>>) -> Box<dyn Cartridge> {
     match rom[CARTRIDGE_TYPE_ADDRESS as usize] {
         0x00 => Box::new(NoMbc::new(rom)),
         x @ (0x01 | 0x02 | 0x03) => Box::new(Mbc1::new(rom, ram, x == 0x03)),
@@ -67,9 +63,9 @@ pub trait Mbc {
     /// Name of the MBC as determined by the cartridge type
     fn name(&self) -> String;
 
-    fn rom(&self) -> &Vec<Byte>;
+    fn rom(&self) -> &Vec<u8>;
 
-    fn ram(&self) -> Option<&Vec<Byte>> {
+    fn ram(&self) -> Option<&Vec<u8>> {
         None
     }
 
@@ -101,7 +97,7 @@ struct NoMbc {
 }
 
 impl NoMbc {
-    pub fn new(rom: Vec<Byte>) -> Self {
+    pub fn new(rom: Vec<u8>) -> Self {
         NoMbc { rom }
     }
 }
@@ -111,13 +107,13 @@ impl Mbc for NoMbc {
         "ROM ONLY".into()
     }
 
-    fn rom(&self) -> &Vec<Byte> {
+    fn rom(&self) -> &Vec<u8> {
         &self.rom
     }
 }
 
 impl Memory for NoMbc {
-    fn read(&self, address: Word) -> Byte {
+    fn read(&self, address: u16) -> u8 {
         match address {
             0x0000..=0x7FFF => self.rom[address as usize],
             _ => {
@@ -127,7 +123,7 @@ impl Memory for NoMbc {
         }
     }
 
-    fn write(&mut self, address: Word, data: Byte) {
+    fn write(&mut self, address: u16, data: u8) {
         log::error!(
             "Write to {:#6X} with {:#4X} for {} MBC",
             address,
@@ -142,7 +138,7 @@ impl Savable for NoMbc {
         false
     }
 
-    fn save_ram(&self) -> Option<&Vec<Byte>> {
+    fn save_ram(&self) -> Option<&Vec<u8>> {
         None
     }
 }
@@ -153,13 +149,13 @@ impl Cartridge for NoMbc {}
 // MBC1 --------------------------------------------------------------------------------------------
 
 struct Mbc1 {
-    rom: Vec<Byte>,
-    ram: Option<Vec<Byte>>,
+    rom: Vec<u8>,
+    ram: Option<Vec<u8>>,
 
-    rom_bank: Byte,
-    rom_bit_mask: Byte,
+    rom_bank: u8,
+    rom_bit_mask: u8,
 
-    ram_bank: Byte,
+    ram_bank: u8,
     ram_enabled: bool,
     ram_banking_mode: bool,
 
@@ -167,15 +163,15 @@ struct Mbc1 {
 }
 
 impl Mbc1 {
-    pub fn new(rom: Vec<Byte>, mut ram: Option<Vec<Byte>>, savable: bool) -> Self {
+    pub fn new(rom: Vec<u8>, mut ram: Option<Vec<u8>>, savable: bool) -> Self {
         let rom_bank = 0x01;
         let ram_bank = 0x00;
         let ram_enabled = false;
         let ram_banking_mode = false;
 
         let rom_banks = rom_size(rom[ROM_SIZE_ADDRESS as usize]).1;
-        let rom_bits_required = min_number_of_bits(rom_banks as Byte) - 1;
-        let rom_bit_mask = (i8::MIN >> (rom_bits_required - 1)) as Byte >> (8 - rom_bits_required);
+        let rom_bits_required = min_number_of_bits(rom_banks as u8) - 1;
+        let rom_bit_mask = (i8::MIN >> (rom_bits_required - 1)) as u8 >> (8 - rom_bits_required);
 
         let ram_size = ram_size(rom[RAM_SIZE_ADDRESS as usize]).0;
         if ram.is_none() && ram_size > 0 {
@@ -207,7 +203,7 @@ impl Mbc1 {
         }
     }
 
-    fn effective_ram_address(&self, address: Word) -> usize {
+    fn effective_ram_address(&self, address: u16) -> usize {
         if self.ram_banks() > 1 {
             if self.ram_banking_mode {
                 0x2000 * self.ram_bank as usize + (address as usize - 0xA000)
@@ -228,17 +224,17 @@ impl Mbc for Mbc1 {
         "MBC1".into()
     }
 
-    fn rom(&self) -> &Vec<Byte> {
+    fn rom(&self) -> &Vec<u8> {
         &self.rom
     }
 
-    fn ram(&self) -> Option<&Vec<Byte>> {
+    fn ram(&self) -> Option<&Vec<u8>> {
         self.ram.as_ref()
     }
 }
 
 impl Memory for Mbc1 {
-    fn read(&self, address: Word) -> Byte {
+    fn read(&self, address: u16) -> u8 {
         match address {
             0x0000..=0x3FFF if !self.ram_banking_mode => self.rom[address as usize],
             0x0000..=0x3FFF if self.ram_banking_mode => {
@@ -284,7 +280,7 @@ impl Memory for Mbc1 {
         }
     }
 
-    fn write(&mut self, address: Word, data: Byte) {
+    fn write(&mut self, address: u16, data: u8) {
         match address {
             0x0000..=0x1FFF => self.ram_enabled = data & 0x0F == 0x0A,
             0x2000..=0x3FFF => {
@@ -325,7 +321,7 @@ impl Savable for Mbc1 {
         self.savable
     }
 
-    fn save_ram(&self) -> Option<&Vec<Byte>> {
+    fn save_ram(&self) -> Option<&Vec<u8>> {
         self.ram.as_ref()
     }
 }
@@ -337,12 +333,12 @@ impl Cartridge for Mbc1 {}
 // MBC5 --------------------------------------------------------------------------------------------
 
 struct Mbc5 {
-    rom: Vec<Byte>,
-    ram: Option<Vec<Byte>>,
+    rom: Vec<u8>,
+    ram: Option<Vec<u8>>,
 
-    rom_bank: Word,
+    rom_bank: u16,
 
-    ram_bank: Byte,
+    ram_bank: u8,
     ram_enabled: bool,
 
     savable: bool,
@@ -352,12 +348,7 @@ struct Mbc5 {
 }
 
 impl Mbc5 {
-    pub fn new(
-        rom: Vec<Byte>,
-        mut ram: Option<Vec<Byte>>,
-        savable: bool,
-        has_rumble: bool,
-    ) -> Self {
+    pub fn new(rom: Vec<u8>, mut ram: Option<Vec<u8>>, savable: bool, has_rumble: bool) -> Self {
         let rom_bank = 0x01;
         let ram_bank = 0x00;
         let ram_enabled = false;
@@ -399,17 +390,17 @@ impl Mbc for Mbc5 {
         "MBC5".into()
     }
 
-    fn rom(&self) -> &Vec<Byte> {
+    fn rom(&self) -> &Vec<u8> {
         &self.rom
     }
 
-    fn ram(&self) -> Option<&Vec<Byte>> {
+    fn ram(&self) -> Option<&Vec<u8>> {
         self.ram.as_ref()
     }
 }
 
 impl Memory for Mbc5 {
-    fn read(&self, address: Word) -> Byte {
+    fn read(&self, address: u16) -> u8 {
         match address {
             0x0000..=0x3FFF => self.rom[address as usize],
             0x4000..=0x7FFF => {
@@ -438,12 +429,12 @@ impl Memory for Mbc5 {
         }
     }
 
-    fn write(&mut self, address: Word, data: Byte) {
+    fn write(&mut self, address: u16, data: u8) {
         match address {
             // Unlike MBC1 all bits of the written value matter for MBC5
             0x0000..=0x1FFF => self.ram_enabled = data == 0x0A,
-            0x2000..=0x2FFF => self.rom_bank = (self.rom_bank & 0x100) | data as Word,
-            0x3000..=0x3FFF => self.rom_bank = ((data as Word & 0b1) << 8) | (self.rom_bank & 0xFF),
+            0x2000..=0x2FFF => self.rom_bank = (self.rom_bank & 0x100) | data as u16,
+            0x3000..=0x3FFF => self.rom_bank = ((data as u16 & 0b1) << 8) | (self.rom_bank & 0xFF),
             0x4000..=0x5FFF => {
                 // The lower 4 bits of the written value are the RAM bank number
                 self.ram_bank = data & 0b1111;
@@ -474,7 +465,7 @@ impl Savable for Mbc5 {
         self.savable
     }
 
-    fn save_ram(&self) -> Option<&Vec<Byte>> {
+    fn save_ram(&self) -> Option<&Vec<u8>> {
         self.ram.as_ref()
     }
 }
@@ -486,7 +477,7 @@ impl Cartridge for Mbc5 {}
 // Helper methods
 /// Calculate the ROM size and number of ROM banks of the cartridge from the
 /// byte at 0x148. Return this information as a (size, banks) tuple
-fn rom_size(value: Byte) -> (u32, u32) {
+fn rom_size(value: u8) -> (u32, u32) {
     // According to Pan Docs no ROMs with the value 0x52, 0x53, 0x54 exist for
     // any game. So we safely ignore those
     if value > 0x08 {
@@ -502,7 +493,7 @@ fn rom_size(value: Byte) -> (u32, u32) {
 
 /// Calculate the RAM size and the number of RAM banks of the cartridge from
 /// the byte at 0x149. Return this information as a (size, banks) tuple
-fn ram_size(value: Byte) -> (u32, u32) {
+fn ram_size(value: u8) -> (u32, u32) {
     match value {
         0x00 => (0x00, 0x00),             // No RAM
         0x02 => (RAM_BANK_SIZE, 1),       // 8KB

@@ -10,7 +10,7 @@ use crate::ppu::{
 };
 use crate::serial::{Serial, SERIAL_END, SERIAL_START};
 use crate::timer::{Timer, TIMER_END, TIMER_START};
-use crate::utils::Cycles;
+
 use crate::{
     cartridge::{
         Cartridge, BOOT_ROM_END, BOOT_ROM_START, CART_RAM_END, CART_RAM_START, CART_ROM_END,
@@ -19,40 +19,39 @@ use crate::{
     joypad::{Joypad, JOYP_ADDRESS},
     memory::Memory,
     ppu::{Ppu, OAM_END, OAM_START, VRAM_END, VRAM_START},
-    utils::{Byte, Word},
 };
 
-const CART_HEADER_START: Word = 0x100;
-const CART_HEADER_END: Word = 0x1FF;
+const CART_HEADER_START: u16 = 0x100;
+const CART_HEADER_END: u16 = 0x1FF;
 
 const WRAM_BANK_SIZE: usize = 1024 * 4; // 4KB
 const HRAM_SIZE: usize = 0xFFFE - 0xFF80 + 1;
 
-const WRAM_FIXED_START: Word = 0xC000;
-const WRAM_FIXED_END: Word = 0xCFFF;
-const WRAM_BANKED_START: Word = 0xD000;
-const WRAM_BANKED_END: Word = 0xDFFF;
-const WRAM_ECHO_START: Word = 0xE000;
-const WRAM_ECHO_END: Word = 0xFDFF;
+const WRAM_FIXED_START: u16 = 0xC000;
+const WRAM_FIXED_END: u16 = 0xCFFF;
+const WRAM_BANKED_START: u16 = 0xD000;
+const WRAM_BANKED_END: u16 = 0xDFFF;
+const WRAM_ECHO_START: u16 = 0xE000;
+const WRAM_ECHO_END: u16 = 0xFDFF;
 
-const UNUSED_START: Word = 0xFEA0;
-const UNUSED_END: Word = 0xFEFF;
+const UNUSED_START: u16 = 0xFEA0;
+const UNUSED_END: u16 = 0xFEFF;
 
-const KEY1: Word = 0xFF4D;
+const KEY1: u16 = 0xFF4D;
 
-const BOOTROM_DISABLE: Word = 0xFF50;
+const BOOTROM_DISABLE: u16 = 0xFF50;
 
-const VRAM_DMA_START: Word = 0xFF51;
-const VRAM_DMA_END: Word = 0xFF55;
+const VRAM_DMA_START: u16 = 0xFF51;
+const VRAM_DMA_END: u16 = 0xFF55;
 
-const WRAM_BANK_SELECT: Word = 0xFF70;
+const WRAM_BANK_SELECT: u16 = 0xFF70;
 
-const HRAM_START: Word = 0xFF80;
+const HRAM_START: u16 = 0xFF80;
 const HRAM_END: u16 = 0xFFFE;
 
 struct OamDma {
-    pending_cycles: Cycles,
-    next_address: Word,
+    pending_cycles: u64,
+    next_address: u16,
 }
 
 /// The MMU (Memory-Management Unit) is responsible for connecting the CPU to
@@ -69,10 +68,10 @@ pub(crate) struct Mmu {
 
     // Only two banks are used in DMG mode
     // CGB mode uses all 8, with 0 being fixed, and 1-7 being switchable
-    wram: [Byte; WRAM_BANK_SIZE * 8],
+    wram: [u8; WRAM_BANK_SIZE * 8],
     wram_bank: usize,
 
-    hram: [Byte; HRAM_SIZE],
+    hram: [u8; HRAM_SIZE],
     joypad: Rc<RefCell<Joypad>>,
     serial: Serial,
     timer: RefCell<Timer>,
@@ -80,8 +79,8 @@ pub(crate) struct Mmu {
     interrupts: Rc<RefCell<InterruptHandler>>,
     /// M-cycles taken by the CPU since start of execution. This will take a
     /// long time to overflow
-    pub cpu_m_cycles: Cell<Cycles>,
-    key1: Byte,
+    pub cpu_m_cycles: Cell<u64>,
+    key1: u8,
 
     // DMAs
     oam_dma: RefCell<Option<OamDma>>,
@@ -167,7 +166,7 @@ impl Mmu {
 
     /// Raw Read: Read the contents of a memory location without ticking all the
     /// components
-    pub fn raw_read(&self, address: u16) -> Byte {
+    pub fn raw_read(&self, address: u16) -> u8 {
         match address {
             CART_HEADER_START..=CART_HEADER_END => return self.cart.read(address),
             BOOT_ROM_START..=BOOT_ROM_END if self.bootrom_enabled => {
@@ -197,7 +196,7 @@ impl Mmu {
             BOOTROM_DISABLE => return u8::from(self.bootrom_enabled),
             VRAM_DMA_START..=VRAM_DMA_END => {}
             PALETTE_START..=PALETTE_END => return self.ppu.borrow().read(address),
-            WRAM_BANK_SELECT => return self.wram_bank as Byte,
+            WRAM_BANK_SELECT => return self.wram_bank as u8,
             HRAM_START..=HRAM_END => return self.hram[(address - HRAM_START) as usize],
             INTERRUPT_ENABLE_ADDRESS => return self.interrupts.borrow().read(address),
             _ => log::error!("Unknown address to Mmu::read {:#06X}", address),
@@ -205,7 +204,7 @@ impl Mmu {
         0xFF
     }
 
-    fn wram_banked_read(&self, address: Word) -> Byte {
+    fn wram_banked_read(&self, address: u16) -> u8 {
         // FIXME: Index out of range errors
         let index = WRAM_BANK_SIZE
             * if self.wram_bank == 0x00 {
@@ -218,7 +217,7 @@ impl Mmu {
         self.wram[index]
     }
 
-    fn wram_banked_write(&mut self, address: Word, data: Byte) {
+    fn wram_banked_write(&mut self, address: u16, data: u8) {
         // FIXME: Index out of range errors
         let index = WRAM_BANK_SIZE
             * if self.wram_bank == 0x00 {
@@ -231,7 +230,7 @@ impl Mmu {
         self.wram[index] = data
     }
 
-    fn raw_write(&mut self, address: Word, data: Byte) {
+    fn raw_write(&mut self, address: u16, data: u8) {
         match address {
             CART_HEADER_START..=CART_HEADER_END => self.cart.write(address, data),
             BOOT_ROM_START..=BOOT_ROM_END if self.bootrom_enabled => {
@@ -256,7 +255,7 @@ impl Mmu {
             OAM_DMA_ADDRESS => {
                 let oam_dma = OamDma {
                     pending_cycles: OAM_DMA_CYCLES,
-                    next_address: (data as Word) << 8,
+                    next_address: (data as u16) << 8,
                 };
 
                 *self.oam_dma.borrow_mut() = Some(oam_dma);
@@ -274,18 +273,18 @@ impl Mmu {
         }
     }
 
-    fn disable_bootrom(&mut self, data: Byte) {
+    fn disable_bootrom(&mut self, data: u8) {
         self.bootrom_enabled = data == 0x00;
         if !self.bootrom_enabled {
             log::info!("Boot ROM disabled");
         }
     }
 
-    pub fn save_ram(&self) -> Option<&Vec<Byte>> {
+    pub fn save_ram(&self) -> Option<&Vec<u8>> {
         self.cart.save_ram()
     }
 
-    pub fn speed_multiplier(&self) -> Cycles {
+    pub fn speed_multiplier(&self) -> u64 {
         if self.key1 & 0x80 != 0 {
             2
         } else {
@@ -307,7 +306,7 @@ impl Memory for Mmu {
     /// because `read` here needs to take a mutable reference to `self` due to
     /// using `tick` inside it. We want the other components to keep up with the
     /// CPU during each memory access
-    fn read(&self, address: Word) -> Byte {
+    fn read(&self, address: u16) -> u8 {
         self.tick();
         if self.oam_dma_in_progress() {
             // Only HRAM is accessible during OAM DMA
@@ -321,7 +320,7 @@ impl Memory for Mmu {
         }
     }
 
-    fn write(&mut self, address: Word, data: Byte) {
+    fn write(&mut self, address: u16, data: u8) {
         // TODO: This order might influence how TIMA updates
         self.tick();
         if self.oam_dma_in_progress() {

@@ -2,14 +2,11 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use crate::interrupts::{InterruptHandler, InterruptType};
-use crate::utils::Cycles;
-use crate::{
-    memory::Memory,
-    utils::{Byte, Word},
-};
 
-pub(crate) const JOYP_ADDRESS: Word = 0xFF00;
-pub(crate) const JOYPAD_POLL_CYCLES: Cycles = 65536; // 64Hz
+use crate::memory::Memory;
+
+pub(crate) const JOYP_ADDRESS: u16 = 0xFF00;
+pub(crate) const JOYPAD_POLL_CYCLES: u64 = 65536; // 64Hz
 
 #[derive(Debug, Copy, Clone)]
 pub enum JoypadKeys {
@@ -24,10 +21,10 @@ pub enum JoypadKeys {
 }
 
 pub(crate) struct Joypad {
-    keys: Byte,
-    joyp: Byte,
+    keys: u8,
+    joyp: u8,
 
-    cycles: Cycles,
+    cycles: u64,
 
     interrupts: Rc<RefCell<InterruptHandler>>,
 }
@@ -43,11 +40,11 @@ impl Joypad {
     }
 
     pub(crate) fn keydown(&mut self, key: JoypadKeys) {
-        self.keys &= !(key as Byte);
+        self.keys &= !(key as u8);
     }
 
     pub(crate) fn keyup(&mut self, key: JoypadKeys) {
-        self.keys |= key as Byte;
+        self.keys |= key as u8;
     }
 
     pub(crate) fn tick(&mut self) {
@@ -81,7 +78,7 @@ impl Joypad {
 }
 
 impl Memory for Joypad {
-    fn read(&self, address: Word) -> Byte {
+    fn read(&self, address: u16) -> u8 {
         if address == JOYP_ADDRESS {
             return self.joyp;
         }
@@ -89,7 +86,7 @@ impl Memory for Joypad {
         panic!("Invalid address {:#06X} for Joypad::Read", address);
     }
 
-    fn write(&mut self, address: Word, data: Byte) {
+    fn write(&mut self, address: u16, data: u8) {
         if address == JOYP_ADDRESS {
             self.joyp = (self.joyp & 0xCF) | (data & 0x30);
             self.update();

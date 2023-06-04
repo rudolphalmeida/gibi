@@ -1,22 +1,21 @@
 use crate::interrupts::{InterruptHandler, InterruptType};
 use crate::memory::Memory;
-use crate::utils::{Byte, Word};
 use std::cell::RefCell;
 use std::rc::Rc;
 
-pub const TIMER_START: Word = 0xFF04;
-pub const TIMER_END: Word = 0xFF07;
+pub const TIMER_START: u16 = 0xFF04;
+pub const TIMER_END: u16 = 0xFF07;
 
-const DIV_ADDRESS: Word = 0xFF04;
-const TIMA_ADDRESS: Word = 0xFF05;
-const TMA_ADDRESS: Word = 0xFF06;
-const TIMER_CONTROL: Word = 0xFF07;
+const DIV_ADDRESS: u16 = 0xFF04;
+const TIMA_ADDRESS: u16 = 0xFF05;
+const TMA_ADDRESS: u16 = 0xFF06;
+const TIMER_CONTROL: u16 = 0xFF07;
 
 pub(crate) struct Timer {
-    div: Word,
-    tima: Byte,
-    tma: Byte,
-    tac: Byte,
+    div: u16,
+    tima: u8,
+    tma: u8,
+    tac: u8,
 
     previous_tima_inc_result: bool,
     /// The TIMA overflow reset with TMA is delayed by one m-cycle or 4 t-cycles.
@@ -85,9 +84,9 @@ impl Timer {
 }
 
 impl Memory for Timer {
-    fn read(&self, address: Word) -> Byte {
+    fn read(&self, address: u16) -> u8 {
         match address {
-            DIV_ADDRESS => (self.div >> 8) as Byte,
+            DIV_ADDRESS => (self.div >> 8) as u8,
             TIMA_ADDRESS => self.tima,
             TMA_ADDRESS => self.tma,
             TIMER_CONTROL => self.tac,
@@ -95,7 +94,7 @@ impl Memory for Timer {
         }
     }
 
-    fn write(&mut self, address: Word, data: Byte) {
+    fn write(&mut self, address: u16, data: u8) {
         match address {
             DIV_ADDRESS => self.div = 0x0000,
             TIMA_ADDRESS => self.tima = data,
@@ -106,7 +105,7 @@ impl Memory for Timer {
     }
 }
 
-fn tima_bit_position(tac: Byte) -> Word {
+fn tima_bit_position(tac: u8) -> u16 {
     match tac & 0b11 {
         0 => 1 << 9,
         1 => 1 << 3,

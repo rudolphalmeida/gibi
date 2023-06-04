@@ -1,8 +1,7 @@
 use crate::memory::Memory;
-use crate::utils::{Byte, Word};
 
-pub const SERIAL_START: Word = 0xFF01;
-pub const SERIAL_END: Word = 0xFF02;
+pub const SERIAL_START: u16 = 0xFF01;
+pub const SERIAL_END: u16 = 0xFF02;
 
 pub(crate) struct Serial {}
 
@@ -13,9 +12,9 @@ impl Serial {
 }
 
 impl Memory for Serial {
-    fn read(&self, _address: Word) -> Byte { 
+    fn read(&self, _address: u16) -> u8 {
         0xFF
     }
 
-    fn write(&mut self, _address: Word, _data: Byte) {}
+    fn write(&mut self, _address: u16, _data: u8) {}
 }

@@ -1,10 +1,9 @@
 use crate::memory::Memory;
-use crate::utils::{Byte, Word};
 
-pub const SOUND_START: Word = 0xFF10;
-pub const SOUND_END: Word = 0xFF26;
-pub const WAVE_START: Word = 0xFF30;
-pub const WAVE_END: Word = 0xFF3F;
+pub const SOUND_START: u16 = 0xFF10;
+pub const SOUND_END: u16 = 0xFF26;
+pub const WAVE_START: u16 = 0xFF30;
+pub const WAVE_END: u16 = 0xFF3F;
 
 pub(crate) struct Apu {}
 
@@ -17,9 +16,9 @@ impl Apu {
 }
 
 impl Memory for Apu {
-    fn read(&self, _address: Word) -> Byte {
+    fn read(&self, _address: u16) -> u8 {
         0xFF
     }
 
-    fn write(&mut self, _address: Word, _data: Byte) {}
+    fn write(&mut self, _address: u16, _data: u8) {}
 }

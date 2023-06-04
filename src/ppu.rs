@@ -3,48 +3,44 @@ use std::rc::Rc;
 
 use crate::cartridge::HardwareSupport;
 use crate::interrupts::{InterruptHandler, InterruptType};
+use crate::memory::Memory;
 use crate::palettes::{Palette, RGBA_WHITE};
-use crate::utils::{bit_value, Cycles};
-use crate::{
-    memory::Memory,
-    utils::{Byte, Word},
-};
 
-pub(crate) const VRAM_START: Word = 0x8000;
-pub(crate) const VRAM_END: Word = 0x9FFF;
+pub(crate) const VRAM_START: u16 = 0x8000;
+pub(crate) const VRAM_END: u16 = 0x9FFF;
 pub(crate) const VRAM_BANK_SIZE: usize = (VRAM_END - VRAM_START + 1) as usize;
 
-pub(crate) const OAM_START: Word = 0xFE00;
-pub(crate) const OAM_END: Word = 0xFE9F;
+pub(crate) const OAM_START: u16 = 0xFE00;
+pub(crate) const OAM_END: u16 = 0xFE9F;
 pub(crate) const OAM_SIZE: usize = (OAM_END - OAM_START + 1) as usize;
 
-pub(crate) const PPU_REGISTERS_START: Word = 0xFF40;
-pub(crate) const PPU_REGISTERS_END: Word = 0xFF4B;
+pub(crate) const PPU_REGISTERS_START: u16 = 0xFF40;
+pub(crate) const PPU_REGISTERS_END: u16 = 0xFF4B;
 
-pub(crate) const LCDC_ADDRESS: Word = 0xFF40;
-pub(crate) const STAT_ADDRESS: Word = 0xFF41;
-pub(crate) const SCY_ADDRESS: Word = 0xFF42;
-pub(crate) const SCX_ADDRESS: Word = 0xFF43;
-pub(crate) const LY_ADDRESS: Word = 0xFF44;
-pub(crate) const LYC_ADDRESS: Word = 0xFF45;
-pub(crate) const OAM_DMA_ADDRESS: Word = 0xFF46;
-pub(crate) const BGP_ADDRESS: Word = 0xFF47;
-pub(crate) const OBP0_ADDRESS: Word = 0xFF48;
-pub(crate) const OBP1_ADDRESS: Word = 0xFF49;
-pub(crate) const WY_ADDRESS: Word = 0xFF4A;
-pub(crate) const WX_ADDRESS: Word = 0xFF4B;
-pub(crate) const VRAM_BANK_ADDRESS: Word = 0xFF4F;
+pub(crate) const LCDC_ADDRESS: u16 = 0xFF40;
+pub(crate) const STAT_ADDRESS: u16 = 0xFF41;
+pub(crate) const SCY_ADDRESS: u16 = 0xFF42;
+pub(crate) const SCX_ADDRESS: u16 = 0xFF43;
+pub(crate) const LY_ADDRESS: u16 = 0xFF44;
+pub(crate) const LYC_ADDRESS: u16 = 0xFF45;
+pub(crate) const OAM_DMA_ADDRESS: u16 = 0xFF46;
+pub(crate) const BGP_ADDRESS: u16 = 0xFF47;
+pub(crate) const OBP0_ADDRESS: u16 = 0xFF48;
+pub(crate) const OBP1_ADDRESS: u16 = 0xFF49;
+pub(crate) const WY_ADDRESS: u16 = 0xFF4A;
+pub(crate) const WX_ADDRESS: u16 = 0xFF4B;
+pub(crate) const VRAM_BANK_ADDRESS: u16 = 0xFF4F;
 
-pub(crate) const PALETTE_START: Word = 0xFF68;
-pub(crate) const PALETTE_END: Word = 0xFF6B;
+pub(crate) const PALETTE_START: u16 = 0xFF68;
+pub(crate) const PALETTE_END: u16 = 0xFF6B;
 
-pub(crate) const BCPS_ADDRESS: Word = 0xFF68;
-pub(crate) const BCPD_ADDRESS: Word = 0xFF69;
-pub(crate) const OCPS_ADDRESS: Word = 0xFF6A;
-pub(crate) const OCPD_ADDRESS: Word = 0xFF6B;
+pub(crate) const BCPS_ADDRESS: u16 = 0xFF68;
+pub(crate) const BCPD_ADDRESS: u16 = 0xFF69;
+pub(crate) const OCPS_ADDRESS: u16 = 0xFF6A;
+pub(crate) const OCPD_ADDRESS: u16 = 0xFF6B;
 
-pub(crate) const DOTS_PER_TICK: Cycles = 4;
-pub(crate) const OAM_DMA_CYCLES: Cycles = 160;
+pub(crate) const DOTS_PER_TICK: u64 = 4;
+pub(crate) const OAM_DMA_CYCLES: u64 = 160;
 
 const BG_MAP_SIZE: usize = 256;
 const TILE_WIDTH_PX: usize = 8;
@@ -70,7 +66,7 @@ enum SpriteHeight {
     Tall = 16,
 }
 
-type Dots = Cycles; // Each m-cycle is 4 dots
+type Dots = u64; // Each m-cycle is 4 dots
 
 const OAM_SEARCH_DOTS: Dots = 80;
 const RENDERING_DOTS: Dots = 168;
@@ -87,36 +83,36 @@ const VBLANK_DOTS: Dots = VBLANK_SCANLINES as Dots * SCANLINE_DOTS;
 const COLOR_PALETTE_SIZE: usize = 64;
 
 pub(crate) struct Ppu {
-    vram: [Byte; VRAM_BANK_SIZE * 2],
+    vram: [u8; VRAM_BANK_SIZE * 2],
     vram_bank: usize,
 
-    oam: [Byte; OAM_SIZE],
+    oam: [u8; OAM_SIZE],
 
     lcdc: Lcdc,
     stat: LcdStat,
-    scy: Byte,
-    scx: Byte,
-    ly: Byte,
-    lyc: Byte,
-    wy: Byte,
-    wx: Byte,
+    scy: u8,
+    scx: u8,
+    ly: u8,
+    lyc: u8,
+    wy: u8,
+    wx: u8,
 
     // CGB palette registers and data
-    bcps: Byte,
-    ocps: Byte,
-    color_bg_palettes: [Byte; COLOR_PALETTE_SIZE],
-    color_obj_palettes: [Byte; COLOR_PALETTE_SIZE],
+    bcps: u8,
+    ocps: u8,
+    color_bg_palettes: [u8; COLOR_PALETTE_SIZE],
+    color_obj_palettes: [u8; COLOR_PALETTE_SIZE],
 
     dots_in_line: Dots,
-    window_internal_counter: Option<Byte>,
+    window_internal_counter: Option<u8>,
 
-    bgp: Byte,
-    obp0: Byte,
-    obp1: Byte,
+    bgp: u8,
+    obp0: u8,
+    obp1: u8,
 
     interrupts: Rc<RefCell<InterruptHandler>>,
 
-    framebuffer: [Byte; (LCD_WIDTH * LCD_HEIGHT * 4) as usize],
+    framebuffer: [u8; (LCD_WIDTH * LCD_HEIGHT * 4) as usize],
 
     hardware_supported: HardwareSupport,
 }
@@ -163,7 +159,7 @@ impl Ppu {
         }
     }
 
-    pub fn tick(&mut self, speed_divider: Cycles) {
+    pub fn tick(&mut self, speed_divider: u64) {
         // Tick 4 times if single speed mode and 2 times if double speed mode
         // The LCD controller speed does not change with the speed mode
         // TODO: Do this only for CGB
@@ -198,7 +194,7 @@ impl Ppu {
                     self.dots_in_line = 0;
                     let old_stat = self.stat;
 
-                    let next_mode = if self.ly == LCD_HEIGHT as Byte {
+                    let next_mode = if self.ly == LCD_HEIGHT as u8 {
                         // Going into VBlank
                         self.window_internal_counter = None;
 
@@ -278,7 +274,7 @@ impl Ppu {
         }
     }
 
-    pub fn copy_framebuffer_to_draw_target(&self, buffer: &mut [Byte]) {
+    pub fn copy_framebuffer_to_draw_target(&self, buffer: &mut [u8]) {
         buffer.copy_from_slice(self.framebuffer.as_slice());
     }
 
@@ -321,8 +317,8 @@ impl Ppu {
             let tile_index = tile_y * TILES_PER_LINE + tile_x;
             let tile_index_address = tilemap_address + tile_index;
 
-            let tile_id = self.vram[vram_index(tile_index_address as Word, 0)];
-            let tile_attr = self.vram[vram_index(tile_index_address as Word, 1)];
+            let tile_id = self.vram[vram_index(tile_index_address as u16, 0)];
+            let tile_attr = self.vram[vram_index(tile_index_address as u16, 1)];
             // TODO: Use more of the BG tile attributes
 
             let tile_data_vram_bank = ((tile_attr & 8) >> 3) as usize;
@@ -357,14 +353,18 @@ impl Ppu {
                 tileset_address + tiledata_mem_offset + tiledata_line_offset;
 
             let pixel_1 =
-                self.vram[vram_index(tile_line_data_start_address as Word, tile_data_vram_bank)];
-            let pixel_2 = self.vram[vram_index(
-                tile_line_data_start_address as Word + 1,
-                tile_data_vram_bank,
-            )];
+                self.vram[vram_index(tile_line_data_start_address as u16, tile_data_vram_bank)];
+            let pixel_2 =
+                self.vram[vram_index(tile_line_data_start_address as u16 + 1, tile_data_vram_bank)];
 
-            let color_id = (bit_value(pixel_2, 7 - tile_pixel_x as Byte) << 1)
-                | bit_value(pixel_1, 7 - tile_pixel_x as Byte);
+            let color_id = (({
+                let index = 7 - tile_pixel_x as u8;
+                u8::from(pixel_2 & (1 << index) != 0)
+            }) << 1)
+                | {
+                    let index = 7 - tile_pixel_x as u8;
+                    u8::from(pixel_1 & (1 << index) != 0)
+                };
             pixel.copy_from_slice(&palette.actual_color_from_index(color_id));
         }
     }
@@ -414,7 +414,7 @@ impl Ppu {
 
             let tile_index = tile_y * TILES_PER_LINE + tile_x;
             let tile_index_address = tilemap_address + tile_index;
-            let tile_id = self.vram[vram_index(tile_index_address as Word, 0)];
+            let tile_id = self.vram[vram_index(tile_index_address as u16, 0)];
 
             let tiledata_mem_offset = match self.lcdc.bg_and_window_tiledata_area() {
                 TiledataAddressingMode::Signed => {
@@ -426,18 +426,24 @@ impl Ppu {
             let tile_line_data_start_address =
                 tileset_address + tiledata_mem_offset + tiledata_line_offset;
 
-            let pixel_1 = self.vram[vram_index(tile_line_data_start_address as Word, 0)];
-            let pixel_2 = self.vram[vram_index(tile_line_data_start_address as Word + 1, 0)];
+            let pixel_1 = self.vram[vram_index(tile_line_data_start_address as u16, 0)];
+            let pixel_2 = self.vram[vram_index(tile_line_data_start_address as u16 + 1, 0)];
 
-            let color_id = (bit_value(pixel_2, 7 - tile_pixel_x as Byte) << 1)
-                | bit_value(pixel_1, 7 - tile_pixel_x as Byte);
+            let color_id = (({
+                let index = 7 - tile_pixel_x as u8;
+                u8::from(pixel_2 & (1 << index) != 0)
+            }) << 1)
+                | {
+                    let index = 7 - tile_pixel_x as u8;
+                    u8::from(pixel_1 & (1 << index) != 0)
+                };
             pixel.copy_from_slice(&palette.actual_color_from_index(color_id));
         }
     }
 
     fn draw_sprites_on_ly(&mut self) {
         let sprites = self.get_sprites_on_ly();
-        let sprite_height = self.lcdc.sprite_height() as Byte;
+        let sprite_height = self.lcdc.sprite_height() as u8;
 
         // On the DMG model the sprite priority is determined by two conditions:
         // 1. The smaller the X-coordinate the higher the priority
@@ -457,9 +463,9 @@ impl Ppu {
                 SpriteHeight::Short => sprite.tile_index,
                 // Bit-0 of tile-index should be ignored for tall sprites
                 SpriteHeight::Tall => sprite.tile_index & 0xFE,
-            } as Word
-                * SIZEOF_TILE as Word
-                + TiledataAddressingMode::Unsigned as Word;
+            } as u16
+                * SIZEOF_TILE as u16
+                + TiledataAddressingMode::Unsigned as u16;
 
             // We offset LY by 16 to ease the following calculations and prevent overflow checks
             let offset_ly = self.ly + 16;
@@ -471,7 +477,7 @@ impl Ppu {
             };
 
             let tile_line_data_start_address =
-                sprite_tile_address + (sprite_line_offset as Word * 2);
+                sprite_tile_address + (sprite_line_offset as u16 * 2);
 
             let obj_palette_number = if let ObjectPalette::ColorPalette(value) = sprite.palette() {
                 value as usize
@@ -510,13 +516,13 @@ impl Ppu {
                 .enumerate()
             {
                 let pixel_index = if sprite.flip_x() {
-                    visible_column_start + i as Byte
+                    visible_column_start + i as u8
                 } else {
-                    7 - (visible_column_start + i as Byte)
+                    7 - (visible_column_start + i as u8)
                 };
 
-                let color_id =
-                    (bit_value(pixel_2, pixel_index) << 1) | bit_value(pixel_1, pixel_index);
+                let color_id = (u8::from(pixel_2 & (1 << pixel_index) != 0) << 1)
+                    | u8::from(pixel_1 & (1 << pixel_index) != 0);
                 // Color ID 00 is transparent for sprites
                 if color_id != 0b00 {
                     if sprite.bg_window_over_sprite() {
@@ -536,7 +542,7 @@ impl Ppu {
         let sprite_indices = self.sprites_on_ly();
 
         for index in sprite_indices {
-            let sprite_address = index as Word * 4;
+            let sprite_address = index as u16 * 4;
             let entry = &self.oam[sprite_address as usize..(sprite_address as usize + 4)];
             let sprite = Sprite::new(entry[0], entry[1], entry[2], entry[3]);
             sprites.push(sprite);
@@ -553,7 +559,7 @@ impl Ppu {
     fn sprites_on_ly(&self) -> Vec<usize> {
         let mut sprites = Vec::with_capacity(10);
 
-        let sprite_height = self.lcdc.sprite_height() as Byte;
+        let sprite_height = self.lcdc.sprite_height() as u8;
 
         // When scanning the OAM the PPU selects only the first 10 sprites which fall on the current
         // scanline
@@ -573,11 +579,11 @@ impl Ppu {
         sprites
     }
 
-    fn bcp_read(&self) -> Byte {
+    fn bcp_read(&self) -> u8 {
         self.color_bg_palettes[(self.bcps & 0x1F) as usize]
     }
 
-    fn bcp_write(&mut self, data: Byte) {
+    fn bcp_write(&mut self, data: u8) {
         self.color_bg_palettes[(self.bcps & 0x1F) as usize] = data;
         if self.bcps & 0x80 != 0 {
             self.bcps += 1;
@@ -585,11 +591,11 @@ impl Ppu {
         }
     }
 
-    fn ocp_read(&self) -> Byte {
+    fn ocp_read(&self) -> u8 {
         self.color_obj_palettes[(self.ocps & 0x1F) as usize]
     }
 
-    fn ocp_write(&mut self, data: Byte) {
+    fn ocp_write(&mut self, data: u8) {
         self.color_obj_palettes[(self.ocps & 0x1F) as usize] = data;
         if self.ocps & 0x80 != 0 {
             self.ocps += 1;
@@ -599,7 +605,7 @@ impl Ppu {
 }
 
 impl Memory for Ppu {
-    fn read(&self, address: Word) -> Byte {
+    fn read(&self, address: u16) -> u8 {
         match address {
             // TODO: VRAM/OAM disable access to CPU after timings are perfect
             VRAM_START..=VRAM_END => self.vram[vram_index(address, self.vram_bank & 0b1)],
@@ -615,7 +621,7 @@ impl Memory for Ppu {
             OBP1_ADDRESS => self.obp1,
             WY_ADDRESS => self.wy,
             WX_ADDRESS => self.wx,
-            VRAM_BANK_ADDRESS => self.vram_bank as Byte,
+            VRAM_BANK_ADDRESS => self.vram_bank as u8,
             BCPS_ADDRESS => self.bcps,
             BCPD_ADDRESS => self.bcp_read(),
             OCPS_ADDRESS => self.ocps,
@@ -624,11 +630,17 @@ impl Memory for Ppu {
         }
     }
 
-    fn write(&mut self, address: Word, data: Byte) {
+    fn write(&mut self, address: u16, data: u8) {
         match address {
             VRAM_START..=VRAM_END => self.vram[vram_index(address, self.vram_bank & 0b1)] = data,
             OAM_START..=OAM_END => self.oam[(address - OAM_START) as usize] = data,
-            LCDC_ADDRESS => self.lcdc.0 = data,
+            LCDC_ADDRESS => {
+                if ((self.lcdc.0 & 0x80) == 0x80) && ((data & 0x80) == 0x00) {
+                    self.stat.set_mode(LcdStatus::Hblank);
+                    self.ly = 0x00;
+                }
+                self.lcdc.0 = data;
+            }
             // Ignore bit 7 as it is not used and don't set status or lyc=ly on write
             STAT_ADDRESS => self.stat.0 = ((data & 0x78) | (self.stat.0 & 0x7)) & 0x7F,
             SCY_ADDRESS => self.scy = data,
@@ -653,26 +665,26 @@ impl Memory for Ppu {
     }
 }
 
-fn vram_index(address: Word, bank: usize) -> usize {
+fn vram_index(address: u16, bank: usize) -> usize {
     VRAM_BANK_SIZE * bank + (address - VRAM_START) as usize
 }
 
 // OAM Sprites
 struct Sprite {
-    y: Byte,
-    x: Byte,
-    tile_index: Byte,
-    attrs: Byte,
+    y: u8,
+    x: u8,
+    tile_index: u8,
+    attrs: u8,
 }
 
 enum ObjectPalette {
     Obp0,
     Obp1,
-    ColorPalette(Byte),
+    ColorPalette(u8),
 }
 
 impl Sprite {
-    pub fn new(y: Byte, x: Byte, tile_index: Byte, attrs: Byte) -> Self {
+    pub fn new(y: u8, x: u8, tile_index: u8, attrs: u8) -> Self {
         Self {
             y,
             x,
@@ -721,15 +733,15 @@ enum LcdcFlags {
 }
 
 #[derive(Debug, Default, Copy, Clone)]
-struct Lcdc(Byte);
+struct Lcdc(u8);
 
 impl Lcdc {
     pub fn lcd_enabled(&self) -> bool {
-        (self.0 & LcdcFlags::PpuEnabled as Byte) != 0x00
+        (self.0 & LcdcFlags::PpuEnabled as u8) != 0x00
     }
 
     pub fn window_tilemap_area(&self) -> TilemapBase {
-        if self.0 & LcdcFlags::WindowTilemapArea as Byte == 0x00 {
+        if self.0 & LcdcFlags::WindowTilemapArea as u8 == 0x00 {
             TilemapBase::Base1
         } else {
             TilemapBase::Base2
@@ -737,11 +749,11 @@ impl Lcdc {
     }
 
     pub fn window_enabled(&self) -> bool {
-        (self.0 & LcdcFlags::WindowEnabled as Byte) != 0x00
+        (self.0 & LcdcFlags::WindowEnabled as u8) != 0x00
     }
 
     pub fn bg_and_window_tiledata_area(&self) -> TiledataAddressingMode {
-        if self.0 & LcdcFlags::BgAndWindowTileDataArea as Byte == 0x00 {
+        if self.0 & LcdcFlags::BgAndWindowTileDataArea as u8 == 0x00 {
             TiledataAddressingMode::Signed
         } else {
             TiledataAddressingMode::Unsigned
@@ -749,7 +761,7 @@ impl Lcdc {
     }
 
     pub fn bg_tilemap_area(&self) -> TilemapBase {
-        if self.0 & LcdcFlags::BgTilemapArea as Byte == 0x00 {
+        if self.0 & LcdcFlags::BgTilemapArea as u8 == 0x00 {
             TilemapBase::Base1
         } else {
             TilemapBase::Base2
@@ -757,7 +769,7 @@ impl Lcdc {
     }
 
     pub fn sprite_height(&self) -> SpriteHeight {
-        if self.0 & LcdcFlags::ObjSize as Byte == 0x00 {
+        if self.0 & LcdcFlags::ObjSize as u8 == 0x00 {
             SpriteHeight::Short
         } else {
             SpriteHeight::Tall
@@ -765,11 +777,11 @@ impl Lcdc {
     }
 
     pub fn sprites_enabled(&self) -> bool {
-        self.0 & LcdcFlags::ObjEnabled as Byte != 0x00
+        self.0 & LcdcFlags::ObjEnabled as u8 != 0x00
     }
 
     pub fn bg_and_window_enabled(&self) -> bool {
-        self.0 & LcdcFlags::BgAndWindowEnabled as Byte != 0x00
+        self.0 & LcdcFlags::BgAndWindowEnabled as u8 != 0x00
     }
 }
 
@@ -789,11 +801,11 @@ enum LcdStatus {
     Rendering = 3,
 }
 
-const LYC_LY_EQUAL: Byte = 1 << 2;
-const LCD_STAT_MASK: Byte = 0x03; // Bits 1,0
+const LYC_LY_EQUAL: u8 = 1 << 2;
+const LCD_STAT_MASK: u8 = 0x03; // Bits 1,0
 
 #[derive(Debug, Default, Copy, Clone)]
-struct LcdStat(Byte);
+struct LcdStat(u8);
 
 impl LcdStat {
     fn mode(&self) -> LcdStatus {
@@ -807,11 +819,11 @@ impl LcdStat {
     }
 
     fn set_mode(&mut self, mode: LcdStatus) {
-        self.0 = (self.0 & !LCD_STAT_MASK) | (mode as Byte);
+        self.0 = (self.0 & !LCD_STAT_MASK) | (mode as u8);
     }
 
     fn is_stat_interrupt_source_enabled(&self, source: LcdStatSource) -> bool {
-        self.0 & source as Byte != 0
+        self.0 & source as u8 != 0
     }
 
     fn lyc_ly_equal(&self) -> bool {

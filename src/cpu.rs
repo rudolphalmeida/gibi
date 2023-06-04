@@ -6,11 +6,7 @@ use crate::cartridge::HardwareSupport;
 use crate::interrupts::{
     InterruptHandler, InterruptType, INTERRUPT_ENABLE_ADDRESS, INTERRUPT_FLAG_ADDRESS,
 };
-use crate::{
-    memory::Memory,
-    mmu::Mmu,
-    utils::{compose_word, decompose_word, Byte, Word},
-};
+use crate::{memory::Memory, mmu::Mmu};
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 enum CpuState {
@@ -51,7 +47,7 @@ impl Cpu {
         }
     }
 
-    fn fetch(&mut self) -> Byte {
+    fn fetch(&mut self) -> u8 {
         let byte = self.mmu.borrow().read(self.regs.pc);
         self.regs.pc += 1;
         byte
@@ -104,7 +100,7 @@ impl Cpu {
             .reset_interrupt_request(interrupt);
 
         // Push PC to stack
-        let (upper, lower) = decompose_word(self.regs.pc);
+        let [upper, lower] = self.regs.pc.to_be_bytes();
         self.regs.sp = self.regs.sp.wrapping_sub(1);
         // Cycle 3
         self.mmu.borrow_mut().write(self.regs.sp, upper);
@@ -180,7 +176,7 @@ impl Cpu {
         let byte_2 = self.mmu.borrow().raw_read(pc + 2);
         let byte_3 = self.mmu.borrow().raw_read(pc + 3);
         println!("A: {:02X} F: {:02X} B: {:02X} C: {:02X} D: {:02X} E: {:02X} H: {:02X} L: {:02X} SP: {:04X} PC: 00:{:04X} ({:02X} {:02X} {:02X} {:02X})", 
-        self.regs.a, Byte::from(self.regs.f), self.regs.b, self.regs.c, self.regs.d, self.regs.e, self.regs.h, self.regs.l, self.regs.sp, self.regs.pc, byte_0, byte_1, byte_2, byte_3);
+        self.regs.a, u8::from(self.regs.f), self.regs.b, self.regs.c, self.regs.d, self.regs.e, self.regs.h, self.regs.l, self.regs.sp, self.regs.pc, byte_0, byte_1, byte_2, byte_3);
     }
 
     // Opcode Implementations
@@ -188,16 +184,16 @@ impl Cpu {
         todo!()
     }
 
-    fn ld_r16_u16(&mut self, opcode: Byte) {
+    fn ld_r16_u16(&mut self, opcode: u8) {
         let lower = self.fetch();
         let upper = self.fetch();
 
         let b54 = (opcode & 0x30) >> 4;
-        let value = compose_word(upper, lower);
+        let value = u16::from_be_bytes([upper, lower]);
         WordRegister::for_group1(b54, self).set(value);
     }
 
-    fn alu_a_r8(&mut self, opcode: Byte) {
+    fn alu_a_r8(&mut self, opcode: u8) {
         let b543 = (opcode & 0x38) >> 3;
         let b321 = opcode & 0x07;
 
@@ -216,7 +212,7 @@ impl Cpu {
         };
     }
 
-    fn alu_a_u8(&mut self, opcode: Byte) {
+    fn alu_a_u8(&mut self, opcode: u8) {
         let b543 = (opcode & 0x38) >> 3;
         let operand = self.fetch();
 
@@ -233,7 +229,7 @@ impl Cpu {
         };
     }
 
-    fn add_a(&mut self, operand: Byte) {
+    fn add_a(&mut self, operand: u8) {
         let (result, carry) = self.regs.a.overflowing_add(operand);
 
         self.regs.f.zero = result == 0x00;
@@ -244,7 +240,7 @@ impl Cpu {
         self.regs.a = result;
     }
 
-    fn adc_a(&mut self, operand: Byte) {
+    fn adc_a(&mut self, operand: u8) {
         let carry = u8::from(self.regs.f.carry);
         let result = self.regs.a.wrapping_add(operand).wrapping_add(carry);
 
@@ -256,7 +252,7 @@ impl Cpu {
         self.regs.a = result;
     }
 
-    fn sub_a(&mut self, operand: Byte) {
+    fn sub_a(&mut self, operand: u8) {
         let (result, borrow) = self.regs.a.overflowing_sub(operand);
 
         self.regs.f.zero = result == 0x00;
@@ -267,7 +263,7 @@ impl Cpu {
         self.regs.a = result;
     }
 
-    fn sbc_a(&mut self, operand: Byte) {
+    fn sbc_a(&mut self, operand: u8) {
         let carry = u8::from(self.regs.f.carry);
         let result = self.regs.a.wrapping_sub(operand).wrapping_sub(carry);
 
@@ -283,7 +279,7 @@ impl Cpu {
         self.regs.a = result;
     }
 
-    fn and_a(&mut self, operand: Byte) {
+    fn and_a(&mut self, operand: u8) {
         self.regs.a &= operand;
 
         self.regs.f.zero = self.regs.a == 0x00;
@@ -292,7 +288,7 @@ impl Cpu {
         self.regs.f.carry = false;
     }
 
-    fn xor_a(&mut self, operand: Byte) {
+    fn xor_a(&mut self, operand: u8) {
         self.regs.a ^= operand;
 
         self.regs.f.zero = self.regs.a == 0x00;
@@ -301,7 +297,7 @@ impl Cpu {
         self.regs.f.negative = false;
     }
 
-    fn or_a(&mut self, operand: Byte) {
+    fn or_a(&mut self, operand: u8) {
         self.regs.a |= operand;
 
         self.regs.f.zero = self.regs.a == 0x00;
@@ -310,7 +306,7 @@ impl Cpu {
         self.regs.f.negative = false;
     }
 
-    fn cp_a(&mut self, operand: Byte) {
+    fn cp_a(&mut self, operand: u8) {
         let (result, borrow) = self.regs.a.overflowing_sub(operand);
 
         self.regs.f.zero = result == 0x00;
@@ -319,7 +315,7 @@ impl Cpu {
         self.regs.f.carry = borrow;
     }
 
-    fn ld_r16_a(&mut self, opcode: Byte) {
+    fn ld_r16_a(&mut self, opcode: u8) {
         let b54 = (opcode & 0x30) >> 4;
         let address = WordRegister::for_group2(b54, self).get();
         self.mmu.borrow_mut().write(address, self.regs.a);
@@ -332,7 +328,7 @@ impl Cpu {
         }
     }
 
-    fn ld_a_r16(&mut self, opcode: Byte) {
+    fn ld_a_r16(&mut self, opcode: u8) {
         let b54 = (opcode & 0x30) >> 4;
         let address = WordRegister::for_group2(b54, self).get();
         self.regs.a = self.mmu.borrow().read(address);
@@ -345,7 +341,7 @@ impl Cpu {
         }
     }
 
-    fn check_condition(&self, bits: Byte) -> bool {
+    fn check_condition(&self, bits: u8) -> bool {
         match bits {
             0 => !self.regs.f.zero,
             1 => self.regs.f.zero,
@@ -355,7 +351,7 @@ impl Cpu {
         }
     }
 
-    fn jr_cc_i8(&mut self, opcode: Byte) {
+    fn jr_cc_i8(&mut self, opcode: u8) {
         let b43 = (opcode & 0x18) >> 3;
         let offset = self.fetch() as i8 as i16 as u16;
 
@@ -365,19 +361,19 @@ impl Cpu {
         }
     }
 
-    fn jr_i8(&mut self, _: Byte) {
+    fn jr_i8(&mut self, _: u8) {
         let offset = self.fetch() as i8 as i16 as u16;
         self.regs.pc = self.regs.pc.wrapping_add(offset);
         self.mmu.borrow().tick();
     }
 
-    fn ld_r8_u8(&mut self, opcode: Byte) {
+    fn ld_r8_u8(&mut self, opcode: u8) {
         let b543 = (opcode & 0x38) >> 3;
         let operand = self.fetch();
         ByteRegister::for_r8(b543, self).set(operand);
     }
 
-    fn cb_prefixed_opcodes(&mut self, _: Byte) {
+    fn cb_prefixed_opcodes(&mut self, _: u8) {
         let prefixed_opcode = self.fetch();
 
         match prefixed_opcode {
@@ -388,7 +384,7 @@ impl Cpu {
         };
     }
 
-    fn bit_n_r8(&mut self, opcode: Byte) {
+    fn bit_n_r8(&mut self, opcode: u8) {
         let b543 = (opcode & 0x38) >> 3;
         let b321 = opcode & 0x07;
 
@@ -398,7 +394,7 @@ impl Cpu {
         self.regs.f.half_carry = true;
     }
 
-    fn res_n_r8(&mut self, opcode: Byte) {
+    fn res_n_r8(&mut self, opcode: u8) {
         let b543 = (opcode & 0x38) >> 3;
         let b321 = opcode & 0x07;
 
@@ -408,7 +404,7 @@ impl Cpu {
         ByteRegister::for_r8(b321, self).set(register);
     }
 
-    fn set_n_r8(&mut self, opcode: Byte) {
+    fn set_n_r8(&mut self, opcode: u8) {
         let b543 = (opcode & 0x38) >> 3;
         let b321 = opcode & 0x07;
 
@@ -442,7 +438,7 @@ impl Cpu {
         ByteRegister::for_r8(b543, self).set(result);
     }
 
-    fn halt(&mut self, _: Byte) {
+    fn halt(&mut self, _: u8) {
         self.state = CpuState::Halted
     }
 
@@ -454,37 +450,37 @@ impl Cpu {
         ByteRegister::for_r8(b543, self).set(source);
     }
 
-    fn ld_ff00_u8_a(&mut self, _: Byte) {
-        let offset = Word::from(self.fetch());
+    fn ld_ff00_u8_a(&mut self, _: u8) {
+        let offset = u16::from(self.fetch());
         self.mmu.borrow_mut().write(0xFF00 + offset, self.regs.a);
     }
 
-    fn ld_ff00_c_a(&mut self, _: Byte) {
+    fn ld_ff00_c_a(&mut self, _: u8) {
         self.mmu
             .borrow_mut()
-            .write(0xFF00 + Word::from(self.regs.c), self.regs.a);
+            .write(0xFF00 + u16::from(self.regs.c), self.regs.a);
     }
 
-    fn ld_a_ff00_u8(&mut self, _: Byte) {
-        let offset = Word::from(self.fetch());
+    fn ld_a_ff00_u8(&mut self, _: u8) {
+        let offset = u16::from(self.fetch());
         self.regs.a = self.mmu.borrow().read(0xFF00 + offset);
     }
 
-    fn ld_a_ff00_c(&mut self, _: Byte) {
+    fn ld_a_ff00_c(&mut self, _: u8) {
         self.regs.a = self.mmu.borrow().read(0xFF00 + self.regs.c as u16);
     }
 
-    fn call_u16(&mut self, _: Byte) {
+    fn call_u16(&mut self, _: u8) {
         let lsb = self.fetch();
         let msb = self.fetch();
-        let jump_address = compose_word(msb, lsb);
+        let jump_address = u16::from_be_bytes([msb, lsb]);
 
         // Pre-decrement SP
         self.regs.sp = self.regs.sp.wrapping_sub(1);
         self.mmu.borrow().tick();
 
         // Write return location to stack
-        let (pc_upper, pc_lower) = decompose_word(self.regs.pc);
+        let [pc_upper, pc_lower] = self.regs.pc.to_be_bytes();
         self.mmu.borrow_mut().write(self.regs.sp, pc_upper);
         self.regs.sp = self.regs.sp.wrapping_sub(1);
         self.mmu.borrow_mut().write(self.regs.sp, pc_lower);
@@ -492,7 +488,7 @@ impl Cpu {
         self.regs.pc = jump_address;
     }
 
-    fn call_cc_u16(&mut self, opcode: Byte) {
+    fn call_cc_u16(&mut self, opcode: u8) {
         let b43 = (opcode & 0x18) >> 3;
 
         if self.check_condition(b43) {
@@ -504,10 +500,10 @@ impl Cpu {
         }
     }
 
-    fn push_r16(&mut self, opcode: Byte) {
+    fn push_r16(&mut self, opcode: u8) {
         let b54 = (opcode & 0x30) >> 4;
         let register_value = WordRegister::for_group3(b54, self).get();
-        let (upper, lower) = decompose_word(register_value);
+        let [upper, lower] = register_value.to_be_bytes();
 
         // Pre-decrement of SP takes a cycle
         self.regs.sp = self.regs.sp.wrapping_sub(1);
@@ -518,7 +514,7 @@ impl Cpu {
         self.mmu.borrow_mut().write(self.regs.sp, lower);
     }
 
-    fn pop_r16(&mut self, opcode: Byte) {
+    fn pop_r16(&mut self, opcode: u8) {
         let b54 = (opcode & 0x30) >> 4;
 
         let lower = self.mmu.borrow().read(self.regs.sp);
@@ -526,10 +522,10 @@ impl Cpu {
         let upper = self.mmu.borrow().read(self.regs.sp);
         self.regs.sp = self.regs.sp.wrapping_add(1);
 
-        WordRegister::for_group3(b54, self).set(compose_word(upper, lower));
+        WordRegister::for_group3(b54, self).set(u16::from_be_bytes([upper, lower]));
     }
 
-    fn rotate_and_swap_r8(&mut self, opcode: Byte) {
+    fn rotate_and_swap_r8(&mut self, opcode: u8) {
         let b543 = (opcode & 0x38) >> 3;
         let b321 = opcode & 0x07;
 
@@ -549,7 +545,7 @@ impl Cpu {
         ByteRegister::for_r8(b321, self).set(result);
     }
 
-    fn rlc(&mut self, mut operand: Byte) -> Byte {
+    fn rlc(&mut self, mut operand: u8) -> u8 {
         let bit7 = u8::from(operand & 0x80 != 0);
         self.regs.f.carry = bit7 != 0;
 
@@ -563,7 +559,7 @@ impl Cpu {
         operand
     }
 
-    fn rrc(&mut self, mut operand: Byte) -> Byte {
+    fn rrc(&mut self, mut operand: u8) -> u8 {
         let bit0 = u8::from(operand & 0x1 != 0);
         self.regs.f.carry = bit0 != 0;
 
@@ -577,7 +573,7 @@ impl Cpu {
         operand
     }
 
-    fn rl(&mut self, mut operand: Byte) -> Byte {
+    fn rl(&mut self, mut operand: u8) -> u8 {
         let carry = u8::from(self.regs.f.carry);
         self.regs.f.carry = (operand & 0x80) != 0;
         operand <<= 1;
@@ -603,7 +599,7 @@ impl Cpu {
         operand
     }
 
-    fn sla(&mut self, mut operand: Byte) -> Byte {
+    fn sla(&mut self, mut operand: u8) -> u8 {
         self.regs.f.carry = operand & 0x80 != 0;
         operand <<= 1;
 
@@ -614,9 +610,9 @@ impl Cpu {
         operand
     }
 
-    fn sra(&mut self, mut operand: Byte) -> Byte {
+    fn sra(&mut self, mut operand: u8) -> u8 {
         self.regs.f.carry = operand & 0x1 != 0;
-        operand = ((operand as i8) >> 1) as Byte;
+        operand = ((operand as i8) >> 1) as u8;
 
         self.regs.f.zero = operand == 0x00;
         self.regs.f.negative = false;
@@ -647,7 +643,7 @@ impl Cpu {
         operand
     }
 
-    fn flag_ops(&mut self, opcode: Byte) {
+    fn flag_ops(&mut self, opcode: u8) {
         let b543 = (opcode & 0x38) >> 3;
 
         match b543 {
@@ -663,31 +659,31 @@ impl Cpu {
         }
     }
 
-    fn rlca(&mut self) -> Byte {
+    fn rlca(&mut self) -> u8 {
         let result = self.rlc(self.regs.a);
         self.regs.f.zero = false; // RLCA unsets zero flag always
         result
     }
 
-    fn rrca(&mut self) -> Byte {
+    fn rrca(&mut self) -> u8 {
         let result = self.rrc(self.regs.a);
         self.regs.f.zero = false; // RRCA unsets zero flag always
         result
     }
 
-    fn rla(&mut self) -> Byte {
+    fn rla(&mut self) -> u8 {
         let result = self.rl(self.regs.a);
         self.regs.f.zero = false; // RLA unsets zero flag always
         result
     }
 
-    fn rra(&mut self) -> Byte {
+    fn rra(&mut self) -> u8 {
         let result = self.rr(self.regs.a);
         self.regs.f.zero = false; // RRA unsets zero flag always
         result
     }
 
-    fn daa(&mut self) -> Byte {
+    fn daa(&mut self) -> u8 {
         let mut correction = 0x00;
 
         if self.regs.f.half_carry || (!self.regs.f.negative && (self.regs.a & 0xF) > 9) {
@@ -730,34 +726,34 @@ impl Cpu {
         self.regs.f.carry = !self.regs.f.carry;
     }
 
-    fn inc_r16(&mut self, opcode: Byte) {
+    fn inc_r16(&mut self, opcode: u8) {
         let b54 = (opcode & 0x30) >> 4;
         WordRegister::for_group1(b54, self).inc();
     }
 
-    fn dec_r16(&mut self, opcode: Byte) {
+    fn dec_r16(&mut self, opcode: u8) {
         let b54 = (opcode & 0x30) >> 4;
         WordRegister::for_group1(b54, self).dec();
     }
 
-    fn ret(&mut self, _: Byte) {
+    fn ret(&mut self, _: u8) {
         let lower = self.mmu.borrow().read(self.regs.sp);
         self.regs.sp = self.regs.sp.wrapping_add(1);
 
         let upper = self.mmu.borrow().read(self.regs.sp);
         self.regs.sp = self.regs.sp.wrapping_add(1);
 
-        self.regs.pc = compose_word(upper, lower);
+        self.regs.pc = u16::from_be_bytes([upper, lower]);
         // Final m-cycle
         self.mmu.borrow().tick();
     }
 
-    fn reti(&mut self, opcode: Byte) {
+    fn reti(&mut self, opcode: u8) {
         self.ret(opcode);
         self.ime = true;
     }
 
-    fn ret_cc(&mut self, opcode: Byte) {
+    fn ret_cc(&mut self, opcode: u8) {
         let b43 = (opcode & 0x18) >> 3;
 
         self.mmu.borrow().tick(); // Internal branch decision
@@ -771,27 +767,27 @@ impl Cpu {
         let lower = self.fetch();
         let upper = self.fetch();
 
-        let address = compose_word(upper, lower);
+        let address = u16::from_be_bytes([upper, lower]);
         self.mmu.borrow_mut().write(address, self.regs.a);
     }
 
-    fn ld_a_u16(&mut self, _: Byte) {
+    fn ld_a_u16(&mut self, _: u8) {
         let lower = self.fetch();
         let upper = self.fetch();
 
-        let address = compose_word(upper, lower);
+        let address = u16::from_be_bytes([upper, lower]);
         self.regs.a = self.mmu.borrow().read(address);
     }
 
-    fn jp_u16(&mut self, _: Byte) {
+    fn jp_u16(&mut self, _: u8) {
         let lower = self.fetch();
         let upper = self.fetch();
 
-        self.regs.pc = compose_word(upper, lower);
+        self.regs.pc = u16::from_be_bytes([upper, lower]);
         self.mmu.borrow().tick();
     }
 
-    fn jp_cc_u16(&mut self, opcode: Byte) {
+    fn jp_cc_u16(&mut self, opcode: u8) {
         let b43 = (opcode & 0x18) >> 3;
 
         if self.check_condition(b43) {
@@ -803,11 +799,11 @@ impl Cpu {
         }
     }
 
-    fn di(&mut self, _: Byte) {
+    fn di(&mut self, _: u8) {
         self.ime = false;
     }
 
-    fn add_hl_r16(&mut self, opcode: Byte) {
+    fn add_hl_r16(&mut self, opcode: u8) {
         let b54 = (opcode & 0x30) >> 4;
         let operand = WordRegister::for_group1(b54, self).get();
 
@@ -820,11 +816,11 @@ impl Cpu {
         self.mmu.borrow().tick(); // Second cycle
     }
 
-    fn jp_hl(&mut self, _: Byte) {
+    fn jp_hl(&mut self, _: u8) {
         self.regs.pc = self.regs.get_hl();
     }
 
-    fn add_sp_i8(&mut self, _: Byte) {
+    fn add_sp_i8(&mut self, _: u8) {
         let operand = self.fetch() as i8 as i16 as u16;
         let result = self.regs.sp.wrapping_add(operand);
 
@@ -836,7 +832,7 @@ impl Cpu {
         self.regs.sp = result;
     }
 
-    fn ld_hl_sp_i8(&mut self, _: Byte) {
+    fn ld_hl_sp_i8(&mut self, _: u8) {
         let operand = self.fetch() as i8 as i16 as u16;
         let result = self.regs.sp.wrapping_add(operand);
 
@@ -848,29 +844,29 @@ impl Cpu {
         self.regs.set_hl(result);
     }
 
-    fn ld_sp_hl(&mut self, _: Byte) {
+    fn ld_sp_hl(&mut self, _: u8) {
         self.regs.sp = self.regs.get_hl();
         self.mmu.borrow().tick();
     }
 
-    fn ei(&mut self, _: Byte) {
+    fn ei(&mut self, _: u8) {
         // The effect of EI is delayed by one m-cycle
         // TODO: Check behaviour if EI is followed by a HALT
         self.execute_opcode();
         self.ime = true;
     }
 
-    fn ld_u16_sp(&mut self, _: Byte) {
+    fn ld_u16_sp(&mut self, _: u8) {
         let lower = self.fetch();
         let upper = self.fetch();
-        let address = compose_word(upper, lower);
-        let (sp_upper, sp_lower) = decompose_word(self.regs.sp);
+        let address = u16::from_be_bytes([upper, lower]);
+        let [sp_upper, sp_lower] = self.regs.sp.to_be_bytes();
 
         self.mmu.borrow_mut().write(address, sp_lower);
         self.mmu.borrow_mut().write(address + 1, sp_upper);
     }
 
-    fn rst(&mut self, opcode: Byte) {
+    fn rst(&mut self, opcode: u8) {
         let target = (opcode & 0x38) as u16;
 
         // Pre-decrement SP
@@ -878,7 +874,7 @@ impl Cpu {
         self.mmu.borrow().tick();
 
         // Write return location to stack
-        let (pc_upper, pc_lower) = decompose_word(self.regs.pc);
+        let [pc_upper, pc_lower] = self.regs.pc.to_be_bytes();
         self.mmu.borrow_mut().write(self.regs.sp, pc_upper);
         self.regs.sp = self.regs.sp.wrapping_sub(1);
         self.mmu.borrow_mut().write(self.regs.sp, pc_lower);
@@ -940,30 +936,30 @@ impl From<FlagRegister> for u8 {
 
 #[derive(Default)]
 pub(crate) struct Registers {
-    a: Byte,
+    a: u8,
     f: FlagRegister,
-    b: Byte,
-    c: Byte,
-    d: Byte,
-    e: Byte,
-    h: Byte,
-    l: Byte,
+    b: u8,
+    c: u8,
+    d: u8,
+    e: u8,
+    h: u8,
+    l: u8,
 
-    sp: Word,
-    pc: Word,
+    sp: u16,
+    pc: u16,
 }
 
 macro_rules! register_pair {
     ($upper: ident, $lower: ident) => {
         paste! {
-            pub fn [<get_ $upper $lower >](&self) -> Word {
+            pub fn [<get_ $upper $lower >](&self) -> u16 {
                 // The `.into` is only required for `f`. For all else
                 // it should be a NOP
-                compose_word(self.$upper, self.$lower.into())
+                u16::from_be_bytes([self.$upper, self.$lower.into()])
             }
 
-            pub fn [<set_ $upper $lower>](&mut self, value: Word) {
-                let (msb, lsb) = decompose_word(value);
+            pub fn [<set_ $upper $lower>](&mut self, value: u16) {
+                let [msb, lsb] = value.to_be_bytes();
 
                 self.$upper = msb;
                 self.$lower = lsb.into();
@@ -982,19 +978,19 @@ impl Registers {
 // Register decoding for opcodes
 enum WordRegister<'a> {
     Pair {
-        lower: &'a mut Byte,
-        upper: &'a mut Byte,
+        lower: &'a mut u8,
+        upper: &'a mut u8,
     },
-    Single(&'a mut Word),
+    Single(&'a mut u16),
     /// For the AF register pair
     AccumAndFlag {
-        a: &'a mut Byte,
+        a: &'a mut u8,
         f: &'a mut FlagRegister,
     },
 }
 
 impl<'a> WordRegister<'a> {
-    pub fn for_group1(bits: Byte, cpu: &'a mut Cpu) -> Self {
+    pub fn for_group1(bits: u8, cpu: &'a mut Cpu) -> Self {
         match bits {
             0 => WordRegister::Pair {
                 upper: &mut cpu.regs.b,
@@ -1013,7 +1009,7 @@ impl<'a> WordRegister<'a> {
         }
     }
 
-    pub fn for_group2(bits: Byte, cpu: &'a mut Cpu) -> Self {
+    pub fn for_group2(bits: u8, cpu: &'a mut Cpu) -> Self {
         match bits {
             0 => WordRegister::Pair {
                 upper: &mut cpu.regs.b,
@@ -1031,7 +1027,7 @@ impl<'a> WordRegister<'a> {
         }
     }
 
-    pub fn for_group3(bits: Byte, cpu: &'a mut Cpu) -> Self {
+    pub fn for_group3(bits: u8, cpu: &'a mut Cpu) -> Self {
         match bits {
             0 => WordRegister::Pair {
                 upper: &mut cpu.regs.b,
@@ -1053,24 +1049,24 @@ impl<'a> WordRegister<'a> {
         }
     }
 
-    pub fn get(&self) -> Word {
+    pub fn get(&self) -> u16 {
         match self {
-            WordRegister::Pair { lower, upper } => compose_word(**upper, **lower),
+            WordRegister::Pair { lower, upper } => u16::from_be_bytes([**upper, **lower]),
             WordRegister::Single(reg) => **reg,
-            WordRegister::AccumAndFlag { a, f } => compose_word(**a, Byte::from(**f)),
+            WordRegister::AccumAndFlag { a, f } => u16::from_be_bytes([**a, u8::from(**f)]),
         }
     }
 
     pub fn set(&mut self, value: u16) {
         match self {
             WordRegister::Pair { lower, upper } => {
-                let (msb, lsb) = decompose_word(value);
+                let [msb, lsb] = value.to_be_bytes();
                 **lower = lsb;
                 **upper = msb;
             }
             WordRegister::Single(reg) => **reg = value,
             WordRegister::AccumAndFlag { a, f } => {
-                let (msb, lsb) = decompose_word(value);
+                let [msb, lsb] = value.to_be_bytes();
                 **a = msb;
                 **f = lsb.into();
             }
@@ -1113,12 +1109,12 @@ impl<'a> WordRegister<'a> {
 }
 
 enum ByteRegister<'a> {
-    Register(&'a mut Byte),
-    MemoryReference(Word, Rc<RefCell<Mmu>>),
+    Register(&'a mut u8),
+    MemoryReference(u16, Rc<RefCell<Mmu>>),
 }
 
 impl<'a> ByteRegister<'a> {
-    pub fn for_r8(bits: Byte, cpu: &'a mut Cpu) -> Self {
+    pub fn for_r8(bits: u8, cpu: &'a mut Cpu) -> Self {
         match bits {
             0 => ByteRegister::Register(&mut cpu.regs.b),
             1 => ByteRegister::Register(&mut cpu.regs.c),
@@ -1132,14 +1128,14 @@ impl<'a> ByteRegister<'a> {
         }
     }
 
-    pub fn get(&self) -> Byte {
+    pub fn get(&self) -> u8 {
         match self {
             ByteRegister::Register(ptr) => **ptr,
             ByteRegister::MemoryReference(address, mmu) => mmu.borrow().read(*address),
         }
     }
 
-    pub fn set(&mut self, value: Byte) {
+    pub fn set(&mut self, value: u8) {
         match self {
             ByteRegister::Register(ptr) => **ptr = value,
             ByteRegister::MemoryReference(address, mmu) => mmu.borrow_mut().write(*address, value),

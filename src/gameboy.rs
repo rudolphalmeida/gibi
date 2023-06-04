@@ -6,10 +6,9 @@ use crate::apu::Apu;
 use crate::cartridge::{init_mbc_from_rom, HardwareSupport};
 use crate::interrupts::InterruptHandler;
 use crate::joypad::{Joypad, JoypadKeys};
-use crate::utils::{Byte, Cycles};
 use crate::{cpu::Cpu, mmu::Mmu, ppu::Ppu};
 
-const CYCLES_PER_FRAME: Cycles = 17556;
+const CYCLES_PER_FRAME: u64 = 17556;
 
 pub struct Gameboy {
     /// Hardware supported by current cartridge
@@ -25,11 +24,11 @@ pub struct Gameboy {
     /// these add up and one frame of CPU execution can miss the PPU frame by a
     /// few scanlines. We use this value to keep track of excess cycles in the
     /// previous frame and ignore those many in the current frame
-    carry_over_cycles: Cycles,
+    carry_over_cycles: u64,
 }
 
 impl Gameboy {
-    pub fn new(rom: Vec<Byte>, ram: Option<Vec<Byte>>) -> Self {
+    pub fn new(rom: Vec<u8>, ram: Option<Vec<u8>>) -> Self {
         let cart = init_mbc_from_rom(rom, ram);
         let hardware_supported = cart.hardware_supported();
 
@@ -89,7 +88,7 @@ impl Gameboy {
         self.carry_over_cycles = self.mmu.borrow().cpu_m_cycles.get() - target_machine_cycles;
     }
 
-    pub fn copy_framebuffer_to_draw_target(&self, buffer: &mut [Byte]) {
+    pub fn copy_framebuffer_to_draw_target(&self, buffer: &mut [u8]) {
         self.ppu.borrow().copy_framebuffer_to_draw_target(buffer);
     }
 
