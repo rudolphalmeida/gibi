@@ -13,6 +13,35 @@ pub mod ppu;
 mod serial;
 mod timer;
 
+#[derive(Debug, Copy, Clone, PartialEq)]
+pub(crate) enum HardwareSupport {
+    CgbOnly,
+    DmgCgb,
+    DmgCompat,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum ExecutionState {
+    ExecutingBootrom,
+    ExecutingProgram,
+    Halted,
+    Stopped,
+}
+
+struct SystemState {
+    execution_state: ExecutionState,
+    /// Hardware supported by current cartridge
+    hardware_support: HardwareSupport,
+
+    /// Since we run the CPU one opcode at a time or more, each frame can overrun
+    /// the `CYCLES_PER_FRAME` (`17556`) value by a tiny amount. However, eventually
+    /// these add up and one frame of CPU execution can miss the PPU frame by a
+    /// few scanlines. We use this value to keep track of excess cycles in the
+    /// previous frame and ignore those many in the current frame
+    carry_over_cycles: u64,
+    total_cycles: u64,
+}
+
 /// Calculate the minimum number of bits required to store a value
 pub(crate) fn min_number_of_bits(mut value: u8) -> u8 {
     let mut count = 0;

@@ -1,4 +1,4 @@
-use crate::{memory::Memory, min_number_of_bits};
+use crate::{memory::Memory, min_number_of_bits, HardwareSupport};
 
 const CGB_FLAG_ADDRESS: u16 = 0x143;
 const CARTRIDGE_TYPE_ADDRESS: u16 = 0x147;
@@ -17,13 +17,6 @@ pub const CART_ROM_END: u16 = 0x7FFF;
 
 pub const CART_RAM_START: u16 = 0xA000;
 pub const CART_RAM_END: u16 = 0xBFFF;
-
-#[derive(Debug, Copy, Clone)]
-pub(crate) enum HardwareSupport {
-    CgbOnly,
-    DmgCgb,
-    DmgCompat,
-}
 
 pub(crate) trait Savable {
     fn savable(&self) -> bool;

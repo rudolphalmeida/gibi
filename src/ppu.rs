@@ -1,10 +1,10 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use crate::cartridge::HardwareSupport;
 use crate::interrupts::{InterruptHandler, InterruptType};
 use crate::memory::Memory;
 use crate::palettes::{Palette, RGBA_WHITE};
+use crate::{ExecutionState, HardwareSupport, SystemState};
 
 pub(crate) const VRAM_START: u16 = 0x8000;
 pub(crate) const VRAM_END: u16 = 0x9FFF;
@@ -66,19 +66,17 @@ enum SpriteHeight {
     Tall = 16,
 }
 
-type Dots = u64; // Each m-cycle is 4 dots
-
-const OAM_SEARCH_DOTS: Dots = 80;
-const RENDERING_DOTS: Dots = 168;
-const HBLANK_DOTS: Dots = 208;
-const SCANLINE_DOTS: Dots = OAM_SEARCH_DOTS + RENDERING_DOTS + HBLANK_DOTS;
+const OAM_SEARCH_DOTS: u64 = 80;
+const RENDERING_DOTS: u64 = 168;
+const HBLANK_DOTS: u64 = 208;
+const SCANLINE_DOTS: u64 = OAM_SEARCH_DOTS + RENDERING_DOTS + HBLANK_DOTS;
 
 pub const LCD_WIDTH: u32 = 160;
 pub const LCD_HEIGHT: u32 = 144;
 
 const VBLANK_SCANLINES: u32 = 10;
 const TOTAL_SCANLINES: u32 = LCD_HEIGHT + VBLANK_SCANLINES;
-const VBLANK_DOTS: Dots = VBLANK_SCANLINES as Dots * SCANLINE_DOTS;
+const VBLANK_DOTS: u64 = VBLANK_SCANLINES as u64 * SCANLINE_DOTS;
 
 const COLOR_PALETTE_SIZE: usize = 64;
 
@@ -103,7 +101,7 @@ pub(crate) struct Ppu {
     color_bg_palettes: [u8; COLOR_PALETTE_SIZE],
     color_obj_palettes: [u8; COLOR_PALETTE_SIZE],
 
-    dots_in_line: Dots,
+    dots_in_line: u64,
     window_internal_counter: Option<u8>,
 
     bgp: u8,
@@ -114,13 +112,13 @@ pub(crate) struct Ppu {
 
     framebuffer: [u8; (LCD_WIDTH * LCD_HEIGHT * 4) as usize],
 
-    hardware_supported: HardwareSupport,
+    system_state: Rc<RefCell<SystemState>>,
 }
 
 impl Ppu {
     pub fn new(
         interrupts: Rc<RefCell<InterruptHandler>>,
-        hardware_supported: HardwareSupport,
+        system_state: Rc<RefCell<SystemState>>,
     ) -> Self {
         let vram = [0xFF; VRAM_BANK_SIZE * 2];
         let vram_bank = 0xFE; // Bank 0. All other bits are 1
@@ -155,7 +153,7 @@ impl Ppu {
             color_obj_palettes: [0xFF; COLOR_PALETTE_SIZE],
             interrupts,
             framebuffer,
-            hardware_supported,
+            system_state,
         }
     }
 
@@ -285,13 +283,13 @@ impl Ppu {
 
         self.render_background_line();
 
-        if self.lcdc.window_enabled() {
-            self.render_window_line();
-        }
+        // if self.lcdc.window_enabled() {
+        //     self.render_window_line();
+        // }
 
-        if self.lcdc.sprites_enabled() {
-            self.draw_sprites_on_ly();
-        }
+        // if self.lcdc.sprites_enabled() {
+        //     self.draw_sprites_on_ly();
+        // }
     }
 
     fn render_background_line(&mut self) {
@@ -300,12 +298,8 @@ impl Ppu {
 
         let screen_y = self.ly as usize;
         let row_first_index = screen_y * LCD_WIDTH as usize * 4;
-        let row_last_index = (screen_y + 1) * LCD_WIDTH as usize * 4 - 1;
 
-        for (screen_x, pixel) in self.framebuffer[row_first_index..=row_last_index as usize]
-            .chunks_mut(4)
-            .enumerate()
-        {
+        for screen_x in 0..LCD_WIDTH as usize {
             // Displace the coordinate in the background map by the position of the viewport that is
             // shown on the screen and wrap around the BG map if it overflows the BG map
             let bg_map_x = (screen_x + self.scx as usize) % BG_MAP_SIZE;
@@ -319,54 +313,103 @@ impl Ppu {
 
             let tile_id = self.vram[vram_index(tile_index_address as u16, 0)];
             let tile_attr = self.vram[vram_index(tile_index_address as u16, 1)];
-            // TODO: Use more of the BG tile attributes
 
-            let tile_data_vram_bank = ((tile_attr & 8) >> 3) as usize;
-
-            // Vertical flip
-            let tile_pixel_y = if (tile_attr & 0x40) != 0 {
-                TILE_HEIGHT_PX - (bg_map_y % TILE_HEIGHT_PX) - 1
+            let hardware_support = self.system_state.borrow().hardware_support;
+            let execution_state = self.system_state.borrow().execution_state;
+            let pixel_color = if hardware_support == HardwareSupport::DmgCompat
+                && execution_state == ExecutionState::ExecutingProgram
+            {
+                self.render_dmg_compat_bg(bg_map_x, bg_map_y, tile_id, tileset_address)
             } else {
-                bg_map_y % TILE_HEIGHT_PX
+                self.render_cgb_bg(bg_map_x, bg_map_y, tile_id, tile_attr, tileset_address)
             };
 
-            // Horizontal flip
-            let tile_pixel_x = if (tile_attr & 0x20) != 0 {
-                TILE_WIDTH_PX - (bg_map_x % TILE_WIDTH_PX) - 1
-            } else {
-                bg_map_x % TILE_WIDTH_PX
-            };
+            let pixel_start_index = row_first_index + screen_x * 4;
+            let pixel = &mut self.framebuffer[pixel_start_index..(pixel_start_index + 4)];
 
-            let bg_palette_number = tile_attr as usize & 0b111;
-            let palette_spec =
-                &self.color_bg_palettes[(bg_palette_number * 8)..((bg_palette_number + 1) * 8)];
-            let palette = Palette::new_color(palette_spec);
-
-            let tiledata_mem_offset = match self.lcdc.bg_and_window_tiledata_area() {
-                TiledataAddressingMode::Signed => {
-                    (tile_id as i8 as i16 + 128) as usize * SIZEOF_TILE
-                }
-                TiledataAddressingMode::Unsigned => tile_id as usize * SIZEOF_TILE,
-            };
-            let tiledata_line_offset = tile_pixel_y * 2;
-            let tile_line_data_start_address =
-                tileset_address + tiledata_mem_offset + tiledata_line_offset;
-
-            let pixel_1 =
-                self.vram[vram_index(tile_line_data_start_address as u16, tile_data_vram_bank)];
-            let pixel_2 =
-                self.vram[vram_index(tile_line_data_start_address as u16 + 1, tile_data_vram_bank)];
-
-            let color_id = (({
-                let index = 7 - tile_pixel_x as u8;
-                u8::from(pixel_2 & (1 << index) != 0)
-            }) << 1)
-                | {
-                    let index = 7 - tile_pixel_x as u8;
-                    u8::from(pixel_1 & (1 << index) != 0)
-                };
-            pixel.copy_from_slice(&palette.actual_color_from_index(color_id));
+            pixel.copy_from_slice(&pixel_color);
         }
+    }
+
+    fn render_dmg_compat_bg(
+        &self,
+        bg_map_x: usize,
+        bg_map_y: usize,
+        tile_id: u8,
+        tileset_address: usize,
+    ) -> [u8; 4] {
+        let tile_pixel_x = bg_map_x % TILE_WIDTH_PX;
+        let tile_pixel_y = bg_map_y % TILE_HEIGHT_PX;
+
+        // DMG compat games always use the first palette
+        let palette_spec = &self.color_bg_palettes[0..8];
+        let palette = Palette::new_color(palette_spec);
+
+        let tiledata_mem_offset = match self.lcdc.bg_and_window_tiledata_area() {
+            TiledataAddressingMode::Signed => (tile_id as i8 as i16 + 128) as usize * SIZEOF_TILE,
+            TiledataAddressingMode::Unsigned => tile_id as usize * SIZEOF_TILE,
+        };
+        let tiledata_line_offset = tile_pixel_y * 2;
+        let tile_line_data_start_address =
+            tileset_address + tiledata_mem_offset + tiledata_line_offset;
+
+        let pixel_1 = self.vram[vram_index(tile_line_data_start_address as u16, 0)];
+        let pixel_2 = self.vram[vram_index(tile_line_data_start_address as u16 + 1, 0)];
+
+        let index = 7 - tile_pixel_x as u8;
+        let color_id =
+            ((u8::from(pixel_2 & (1 << index) != 0)) << 1) | u8::from(pixel_1 & (1 << index) != 0);
+        palette.actual_color_from_index(color_id)
+    }
+
+    fn render_cgb_bg(
+        &self,
+        bg_map_x: usize,
+        bg_map_y: usize,
+        tile_id: u8,
+        tile_attr: u8,
+        tileset_address: usize,
+    ) -> [u8; 4] {
+        // TODO: Use more of the BG tile attributes
+
+        let tile_data_vram_bank = ((tile_attr & 8) >> 3) as usize;
+
+        // Vertical flip
+        let tile_pixel_y = if (tile_attr & 0x40) != 0 {
+            TILE_HEIGHT_PX - (bg_map_y % TILE_HEIGHT_PX) - 1
+        } else {
+            bg_map_y % TILE_HEIGHT_PX
+        };
+
+        // Horizontal flip
+        let tile_pixel_x = if (tile_attr & 0x20) != 0 {
+            TILE_WIDTH_PX - (bg_map_x % TILE_WIDTH_PX) - 1
+        } else {
+            bg_map_x % TILE_WIDTH_PX
+        };
+
+        let bg_palette_number = tile_attr as usize & 0b111;
+        let palette_spec =
+            &self.color_bg_palettes[(bg_palette_number * 8)..((bg_palette_number + 1) * 8)];
+        let palette = Palette::new_color(palette_spec);
+
+        let tiledata_mem_offset = match self.lcdc.bg_and_window_tiledata_area() {
+            TiledataAddressingMode::Signed => (tile_id as i8 as i16 + 128) as usize * SIZEOF_TILE,
+            TiledataAddressingMode::Unsigned => tile_id as usize * SIZEOF_TILE,
+        };
+        let tiledata_line_offset = tile_pixel_y * 2;
+        let tile_line_data_start_address =
+            tileset_address + tiledata_mem_offset + tiledata_line_offset;
+
+        let pixel_1 =
+            self.vram[vram_index(tile_line_data_start_address as u16, tile_data_vram_bank)];
+        let pixel_2 =
+            self.vram[vram_index(tile_line_data_start_address as u16 + 1, tile_data_vram_bank)];
+
+        let index = 7 - tile_pixel_x as u8;
+        let color_id =
+            ((u8::from(pixel_2 & (1 << index) != 0)) << 1) | u8::from(pixel_1 & (1 << index) != 0);
+        palette.actual_color_from_index(color_id)
     }
 
     fn render_window_line(&mut self) {
@@ -429,14 +472,9 @@ impl Ppu {
             let pixel_1 = self.vram[vram_index(tile_line_data_start_address as u16, 0)];
             let pixel_2 = self.vram[vram_index(tile_line_data_start_address as u16 + 1, 0)];
 
-            let color_id = (({
-                let index = 7 - tile_pixel_x as u8;
-                u8::from(pixel_2 & (1 << index) != 0)
-            }) << 1)
-                | {
-                    let index = 7 - tile_pixel_x as u8;
-                    u8::from(pixel_1 & (1 << index) != 0)
-                };
+            let index = 7 - tile_pixel_x as u8;
+            let color_id = ((u8::from(pixel_2 & (1 << index) != 0)) << 1)
+                | u8::from(pixel_1 & (1 << index) != 0);
             pixel.copy_from_slice(&palette.actual_color_from_index(color_id));
         }
     }

@@ -1,8 +1,8 @@
-use std::cell::{Cell, RefCell};
+use std::cell::RefCell;
 use std::rc::Rc;
 
 use crate::apu::{Apu, SOUND_END, SOUND_START, WAVE_END, WAVE_START};
-use crate::cartridge::{HardwareSupport, CGB_BOOT_ROM};
+use crate::cartridge::CGB_BOOT_ROM;
 use crate::interrupts::{InterruptHandler, INTERRUPT_ENABLE_ADDRESS, INTERRUPT_FLAG_ADDRESS};
 use crate::ppu::{
     OAM_DMA_ADDRESS, OAM_DMA_CYCLES, PALETTE_END, PALETTE_START, PPU_REGISTERS_END,
@@ -10,6 +10,7 @@ use crate::ppu::{
 };
 use crate::serial::{Serial, SERIAL_END, SERIAL_START};
 use crate::timer::{Timer, TIMER_END, TIMER_START};
+use crate::{ExecutionState, SystemState};
 
 use crate::{
     cartridge::{
@@ -63,8 +64,7 @@ pub(crate) struct Mmu {
     ppu: Rc<RefCell<Ppu>>,
     apu: Rc<RefCell<Apu>>,
 
-    /// Hardware supported by the current cartridge
-    hardware_supported: HardwareSupport,
+    system_state: Rc<RefCell<SystemState>>,
 
     // Only two banks are used in DMG mode
     // CGB mode uses all 8, with 0 being fixed, and 1-7 being switchable
@@ -77,9 +77,6 @@ pub(crate) struct Mmu {
     timer: RefCell<Timer>,
     bootrom_enabled: bool,
     interrupts: Rc<RefCell<InterruptHandler>>,
-    /// M-cycles taken by the CPU since start of execution. This will take a
-    /// long time to overflow
-    pub cpu_m_cycles: Cell<u64>,
     key1: u8,
 
     // DMAs
@@ -89,7 +86,7 @@ pub(crate) struct Mmu {
 impl Mmu {
     pub fn new(
         cart: Box<dyn Cartridge>,
-        hardware_supported: HardwareSupport,
+        system_state: Rc<RefCell<SystemState>>,
         ppu: Rc<RefCell<Ppu>>,
         apu: Rc<RefCell<Apu>>,
         joypad: Rc<RefCell<Joypad>>,
@@ -102,7 +99,6 @@ impl Mmu {
         let serial = Serial::new();
         let timer = RefCell::new(Timer::new(Rc::clone(&interrupts)));
 
-        let cpu_m_cycles = Cell::new(0);
         let key1 = 0x00;
 
         let bootrom_enabled = true;
@@ -112,7 +108,7 @@ impl Mmu {
 
         Self {
             cart,
-            hardware_supported,
+            system_state,
             wram,
             wram_bank,
             hram,
@@ -123,14 +119,13 @@ impl Mmu {
             timer,
             apu,
             interrupts,
-            cpu_m_cycles,
             key1,
             oam_dma,
         }
     }
 
     pub fn tick(&self) {
-        self.cpu_m_cycles.set(self.cpu_m_cycles.get() + 1);
+        self.system_state.borrow_mut().total_cycles += 1;
 
         self.tick_oam_dma();
 
@@ -275,6 +270,7 @@ impl Mmu {
 
     fn disable_bootrom(&mut self, data: u8) {
         self.bootrom_enabled = data == 0x00;
+        self.system_state.borrow_mut().execution_state = ExecutionState::ExecutingProgram;
         if !self.bootrom_enabled {
             log::info!("Boot ROM disabled");
         }
