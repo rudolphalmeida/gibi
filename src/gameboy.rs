@@ -36,6 +36,7 @@ impl Gameboy {
             hardware_support,
             carry_over_cycles: 0,
             total_cycles: 0,
+            speed_multiplier: 1,
         }));
 
         let interrupts = Rc::new(RefCell::new(InterruptHandler::default()));
@@ -75,9 +76,11 @@ impl Gameboy {
 
     pub fn run_one_frame(&mut self) {
         let machine_cycles = self.system_state.borrow().total_cycles;
-        let target_machine_cycles = machine_cycles
-            + CYCLES_PER_FRAME * self.mmu.borrow().speed_multiplier()
-            - self.system_state.borrow().carry_over_cycles;
+        let carry_over_cycles = self.system_state.borrow().carry_over_cycles;
+        let speed_multiplier = self.system_state.borrow().speed_multiplier;
+
+        let target_machine_cycles =
+            machine_cycles + CYCLES_PER_FRAME * speed_multiplier - carry_over_cycles;
 
         while self.system_state.borrow().total_cycles < target_machine_cycles {
             self.cpu.execute();

@@ -129,9 +129,11 @@ impl Mmu {
 
         self.tick_oam_dma();
 
+        let speed_multiplier = self.system_state.borrow().speed_multiplier;
+
         self.timer.borrow_mut().tick();
         self.joypad.borrow_mut().tick();
-        self.ppu.borrow_mut().tick(self.speed_multiplier());
+        self.ppu.borrow_mut().tick(speed_multiplier);
         self.apu.borrow_mut().tick();
     }
 
@@ -280,20 +282,8 @@ impl Mmu {
         self.cart.save_ram()
     }
 
-    pub fn speed_multiplier(&self) -> u64 {
-        if self.key1 & 0x80 != 0 {
-            2
-        } else {
-            1
-        }
-    }
-
     fn preparing_speed_switch(&self) -> bool {
         self.key1 & 0x1 != 0
-    }
-
-    pub fn switch_speed(&mut self) {
-        todo!()
     }
 }
 

@@ -33,6 +33,8 @@ struct SystemState {
     /// Hardware supported by current cartridge
     hardware_support: HardwareSupport,
 
+    speed_multiplier: u64,
+
     /// Since we run the CPU one opcode at a time or more, each frame can overrun
     /// the `CYCLES_PER_FRAME` (`17556`) value by a tiny amount. However, eventually
     /// these add up and one frame of CPU execution can miss the PPU frame by a
