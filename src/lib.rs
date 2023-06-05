@@ -22,10 +22,9 @@ pub(crate) enum HardwareSupport {
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 enum ExecutionState {
-    ExecutingBootrom,
     ExecutingProgram,
+    PreparingSpeedSwitch,
     Halted,
-    Stopped,
 }
 
 struct SystemState {
@@ -33,7 +32,8 @@ struct SystemState {
     /// Hardware supported by current cartridge
     hardware_support: HardwareSupport,
 
-    speed_multiplier: u64,
+    key1: u8,
+    bootrom_mapped: bool,
 
     /// Since we run the CPU one opcode at a time or more, each frame can overrun
     /// the `CYCLES_PER_FRAME` (`17556`) value by a tiny amount. However, eventually
@@ -42,6 +42,12 @@ struct SystemState {
     /// previous frame and ignore those many in the current frame
     carry_over_cycles: u64,
     total_cycles: u64,
+}
+
+impl SystemState {
+    pub(crate) fn speed_multiplier(&self) -> u64 {
+        ((self.key1 & 0b1) + 1).into()
+    }
 }
 
 /// Calculate the minimum number of bits required to store a value

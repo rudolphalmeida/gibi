@@ -4,7 +4,7 @@ use std::rc::Rc;
 use crate::interrupts::{InterruptHandler, InterruptType};
 use crate::memory::Memory;
 use crate::palettes::{Palette, RGBA_WHITE};
-use crate::{ExecutionState, HardwareSupport, SystemState};
+use crate::{HardwareSupport, SystemState};
 
 pub(crate) const VRAM_START: u16 = 0x8000;
 pub(crate) const VRAM_END: u16 = 0x9FFF;
@@ -120,23 +120,16 @@ impl Ppu {
         interrupts: Rc<RefCell<InterruptHandler>>,
         system_state: Rc<RefCell<SystemState>>,
     ) -> Self {
-        let vram = [0xFF; VRAM_BANK_SIZE * 2];
-        let vram_bank = 0xFE; // Bank 0. All other bits are 1
-        let oam = [0xFF; OAM_SIZE];
-        let lcdc = Default::default();
         let mut stat: LcdStat = Default::default();
         stat.set_mode(LcdStatus::OamSearch);
-        let dots_in_line = Default::default();
-        // We are using a RGBA format pixel buffer
-        let framebuffer = [0x00; (LCD_WIDTH * LCD_HEIGHT * 4) as usize];
 
         Ppu {
-            vram,
-            vram_bank,
-            oam,
-            lcdc,
+            vram: [0xFF; VRAM_BANK_SIZE * 2],
+            vram_bank: 0xFE, // Bank 0. All other bits are 1
+            oam: [0xFF; OAM_SIZE],
+            lcdc: Default::default(),
             stat,
-            dots_in_line,
+            dots_in_line: Default::default(),
             scy: 0x00,
             scx: 0x00,
             ly: 0x00,
@@ -152,7 +145,7 @@ impl Ppu {
             color_bg_palettes: [0xFF; COLOR_PALETTE_SIZE],
             color_obj_palettes: [0xFF; COLOR_PALETTE_SIZE],
             interrupts,
-            framebuffer,
+            framebuffer: [0x00; (LCD_WIDTH * LCD_HEIGHT * 4) as usize], // We are using a RGBA format pixel buffer
             system_state,
         }
     }
@@ -315,10 +308,9 @@ impl Ppu {
             let tile_attr = self.vram[vram_index(tile_index_address as u16, 1)];
 
             let hardware_support = self.system_state.borrow().hardware_support;
-            let execution_state = self.system_state.borrow().execution_state;
-            let pixel_color = if hardware_support == HardwareSupport::DmgCompat
-                && execution_state == ExecutionState::ExecutingProgram
-            {
+            let bootrom_mapped = self.system_state.borrow().bootrom_mapped;
+            // If the bootrom is mapped, run in CGB mode regardless of cart
+            let pixel_color = if hardware_support == HardwareSupport::DmgCompat && !bootrom_mapped {
                 self.render_dmg_compat_bg(bg_map_x, bg_map_y, tile_id, tileset_address)
             } else {
                 self.render_cgb_bg(bg_map_x, bg_map_y, tile_id, tile_attr, tileset_address)

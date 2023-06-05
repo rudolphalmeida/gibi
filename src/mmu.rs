@@ -10,7 +10,7 @@ use crate::ppu::{
 };
 use crate::serial::{Serial, SERIAL_END, SERIAL_START};
 use crate::timer::{Timer, TIMER_END, TIMER_START};
-use crate::{ExecutionState, SystemState};
+use crate::SystemState;
 
 use crate::{
     cartridge::{
@@ -75,9 +75,7 @@ pub(crate) struct Mmu {
     joypad: Rc<RefCell<Joypad>>,
     serial: Serial,
     timer: RefCell<Timer>,
-    bootrom_enabled: bool,
     interrupts: Rc<RefCell<InterruptHandler>>,
-    key1: u8,
 
     // DMAs
     oam_dma: RefCell<Option<OamDma>>,
@@ -97,11 +95,8 @@ impl Mmu {
 
         let hram = [0x00; HRAM_SIZE];
         let serial = Serial::new();
-        let timer = RefCell::new(Timer::new(Rc::clone(&interrupts)));
+        let timer = RefCell::new(Timer::new(Rc::clone(&interrupts), Rc::clone(&system_state)));
 
-        let key1 = 0x00;
-
-        let bootrom_enabled = true;
         let oam_dma = RefCell::new(None);
 
         log::debug!("Initialized MMU for CGB");
@@ -114,12 +109,10 @@ impl Mmu {
             hram,
             ppu,
             joypad,
-            bootrom_enabled,
             serial,
             timer,
             apu,
             interrupts,
-            key1,
             oam_dma,
         }
     }
@@ -129,7 +122,7 @@ impl Mmu {
 
         self.tick_oam_dma();
 
-        let speed_multiplier = self.system_state.borrow().speed_multiplier;
+        let speed_multiplier = self.system_state.borrow().speed_multiplier();
 
         self.timer.borrow_mut().tick();
         self.joypad.borrow_mut().tick();
@@ -166,7 +159,7 @@ impl Mmu {
     pub fn raw_read(&self, address: u16) -> u8 {
         match address {
             CART_HEADER_START..=CART_HEADER_END => return self.cart.read(address),
-            BOOT_ROM_START..=BOOT_ROM_END if self.bootrom_enabled => {
+            BOOT_ROM_START..=BOOT_ROM_END if self.system_state.borrow().bootrom_mapped => {
                 return CGB_BOOT_ROM[address as usize]
             }
             CART_ROM_START..=CART_ROM_END => return self.cart.read(address),
@@ -189,9 +182,9 @@ impl Mmu {
             OAM_DMA_ADDRESS => return 0xFF, // TODO: Check if this is correct
             PPU_REGISTERS_START..=PPU_REGISTERS_END => return self.ppu.borrow().read(address),
             VRAM_BANK_ADDRESS => return self.ppu.borrow().read(address),
-            KEY1 => return self.key1,
-            BOOTROM_DISABLE => return u8::from(self.bootrom_enabled),
-            VRAM_DMA_START..=VRAM_DMA_END => {}
+            KEY1 => return self.system_state.borrow().key1,
+            BOOTROM_DISABLE => return u8::from(self.system_state.borrow().bootrom_mapped),
+            VRAM_DMA_START..=VRAM_DMA_END => log::debug!("Read from VRAM DMA: {:#06X}", address),
             PALETTE_START..=PALETTE_END => return self.ppu.borrow().read(address),
             WRAM_BANK_SELECT => return self.wram_bank as u8,
             HRAM_START..=HRAM_END => return self.hram[(address - HRAM_START) as usize],
@@ -230,7 +223,7 @@ impl Mmu {
     fn raw_write(&mut self, address: u16, data: u8) {
         match address {
             CART_HEADER_START..=CART_HEADER_END => self.cart.write(address, data),
-            BOOT_ROM_START..=BOOT_ROM_END if self.bootrom_enabled => {
+            BOOT_ROM_START..=BOOT_ROM_END if self.system_state.borrow().bootrom_mapped => {
                 log::error!("Write to boot ROM {:#06X} with {:#04X}", address, data)
             }
             CART_ROM_START..=CART_ROM_END => self.cart.write(address, data),
@@ -259,9 +252,16 @@ impl Mmu {
             }
             PPU_REGISTERS_START..=PPU_REGISTERS_END => self.ppu.borrow_mut().write(address, data),
             VRAM_BANK_ADDRESS => self.ppu.borrow_mut().write(address, data),
-            KEY1 => self.key1 = (self.key1 & 0x80) | (data & 0x7F),
+            KEY1 => {
+                let key1 = (self.system_state.borrow().key1 & 0x80) | (data & 0x7F);
+                self.system_state.borrow_mut().key1 = key1;
+            }
             BOOTROM_DISABLE => self.disable_bootrom(data),
-            VRAM_DMA_START..=VRAM_DMA_END => {}
+            VRAM_DMA_START..=VRAM_DMA_END => log::debug!(
+                "Write to VRAM DMA address: {:#06X} data: {:#04X}",
+                address,
+                data
+            ),
             PALETTE_START..=PALETTE_END => self.ppu.borrow_mut().write(address, data),
             WRAM_BANK_SELECT => self.wram_bank = data as usize & 0b111,
             HRAM_START..=HRAM_END => self.hram[address as usize - 0xFF80] = data,
@@ -271,19 +271,14 @@ impl Mmu {
     }
 
     fn disable_bootrom(&mut self, data: u8) {
-        self.bootrom_enabled = data == 0x00;
-        self.system_state.borrow_mut().execution_state = ExecutionState::ExecutingProgram;
-        if !self.bootrom_enabled {
+        self.system_state.borrow_mut().bootrom_mapped = data == 0x00;
+        if !self.system_state.borrow().bootrom_mapped {
             log::info!("Boot ROM disabled");
         }
     }
 
     pub fn save_ram(&self) -> Option<&Vec<u8>> {
         self.cart.save_ram()
-    }
-
-    fn preparing_speed_switch(&self) -> bool {
-        self.key1 & 0x1 != 0
     }
 }
 

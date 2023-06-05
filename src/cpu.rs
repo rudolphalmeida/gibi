@@ -5,14 +5,8 @@ use paste::paste;
 use crate::interrupts::{
     InterruptHandler, InterruptType, INTERRUPT_ENABLE_ADDRESS, INTERRUPT_FLAG_ADDRESS,
 };
-use crate::SystemState;
 use crate::{memory::Memory, mmu::Mmu};
-
-#[derive(Debug, Copy, Clone, Eq, PartialEq)]
-enum CpuState {
-    Halted,
-    Executing,
-}
+use crate::{ExecutionState, SystemState};
 
 pub(crate) struct Cpu {
     system_state: Rc<RefCell<SystemState>>,
@@ -20,10 +14,10 @@ pub(crate) struct Cpu {
     mmu: Rc<RefCell<Mmu>>,
     regs: Registers,
 
-    state: CpuState,
-
     ime: bool,
     interrupts: Rc<RefCell<InterruptHandler>>,
+
+    previous_execution_state: Option<ExecutionState>,
 }
 
 impl Cpu {
@@ -34,16 +28,15 @@ impl Cpu {
     ) -> Self {
         let regs = Default::default();
         let ime = true;
-        let state = CpuState::Executing;
 
         log::debug!("Initialized CPU for CGB");
         Cpu {
             system_state,
             mmu,
             regs,
-            state,
             ime,
             interrupts,
+            previous_execution_state: None,
         }
     }
 
@@ -57,9 +50,13 @@ impl Cpu {
         if self.check_for_pending_interrupts() {
             self.handle_interrupts();
         }
-        match self.state {
-            CpuState::Halted => self.mmu.borrow().tick(),
-            CpuState::Executing => self.execute_opcode(),
+
+        let execution_state = self.system_state.borrow().execution_state;
+        match execution_state {
+            ExecutionState::Halted | ExecutionState::PreparingSpeedSwitch => {
+                self.mmu.borrow().tick()
+            }
+            ExecutionState::ExecutingProgram => self.execute_opcode(),
         }
     }
 
@@ -85,7 +82,9 @@ impl Cpu {
 
         // When there are pending interrupts, the CPU starts executing again and jumps to the interrupt
         // with the highest priority
-        self.state = CpuState::Executing;
+        if let Some(previous_execution_state) = self.previous_execution_state {
+            self.system_state.borrow_mut().execution_state = previous_execution_state;
+        }
 
         // However, if there are pending interrupts, but *all* interrupts are disabled, the CPU still
         // needs to be executing, however we don't service any interrupt.
@@ -181,7 +180,10 @@ impl Cpu {
 
     // Opcode Implementations
     fn stop(&mut self) {
-        todo!()
+        if self.system_state.borrow().key1 & 0b1 == 0b1 {
+            // If a speed switch has been requested
+            self.system_state.borrow_mut().execution_state = ExecutionState::PreparingSpeedSwitch;
+        }
     }
 
     fn ld_r16_u16(&mut self, opcode: u8) {
@@ -439,7 +441,9 @@ impl Cpu {
     }
 
     fn halt(&mut self, _: u8) {
-        self.state = CpuState::Halted
+        self.previous_execution_state = Some(self.system_state.borrow().execution_state);
+        let mut system_state = self.system_state.borrow_mut();
+        system_state.execution_state = ExecutionState::Halted;
     }
 
     fn ld_r8_r8(&mut self, opcode: u8) {
