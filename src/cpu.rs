@@ -53,9 +53,10 @@ impl Cpu {
 
         let execution_state = self.system_state.borrow().execution_state;
         match execution_state {
-            ExecutionState::Halted | ExecutionState::PreparingSpeedSwitch => {
-                self.mmu.borrow().tick()
-            }
+              ExecutionState::Halted                // CPU does not execute when halted
+            | ExecutionState::PreparingSpeedSwitch  // switching speed
+            | ExecutionState::PerformingGDMA        // or performing GDMA
+            => self.mmu.borrow().tick(),
             ExecutionState::ExecutingProgram => self.execute_opcode(),
         }
     }

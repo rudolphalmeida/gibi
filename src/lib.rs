@@ -23,8 +23,41 @@ pub(crate) enum HardwareSupport {
 #[derive(Debug, Clone, Copy, PartialEq)]
 enum ExecutionState {
     ExecutingProgram,
+    PerformingGDMA,
     PreparingSpeedSwitch,
     Halted,
+}
+
+struct HdmaState {
+    source_addr: u16, // Built from HDMA1, HDMA2
+    dest_addr: u16,   // Built from HDMA3, HDMA4
+    hdma_stat: u8,    // HDMA5 (Length, Mode, Start)
+}
+
+impl HdmaState {
+    fn write_high(attrib: &mut u16, high: u8) {
+        *attrib = (*attrib & 0x00FF) | (high as u16) << 8;
+    }
+
+    fn write_low(attrib: &mut u16, low: u8) {
+        *attrib = (*attrib & 0x00FF) | (low as u16);
+    }
+
+    pub(crate) fn write_src_high(&mut self, high: u8) {
+        HdmaState::write_high(&mut self.source_addr, high);
+    }
+
+    pub(crate) fn write_src_low(&mut self, low: u8) {
+        HdmaState::write_low(&mut self.source_addr, low & 0xF0);
+    }
+
+    pub(crate) fn write_dest_high(&mut self, high: u8) {
+        HdmaState::write_high(&mut self.dest_addr, high & 0x1F);
+    }
+
+    pub(crate) fn write_dest_low(&mut self, low: u8) {
+        HdmaState::write_low(&mut self.dest_addr, low & 0xF0);
+    }
 }
 
 struct SystemState {
@@ -34,6 +67,8 @@ struct SystemState {
 
     key1: u8,
     bootrom_mapped: bool,
+
+    hdma_state: HdmaState,
 
     /// Since we run the CPU one opcode at a time or more, each frame can overrun
     /// the `CYCLES_PER_FRAME` (`17556`) value by a tiny amount. However, eventually

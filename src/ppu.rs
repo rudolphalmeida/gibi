@@ -276,13 +276,13 @@ impl Ppu {
 
         self.render_background_line();
 
-        if self.lcdc.window_enabled() {
-            self.render_window_line();
-        }
+        // if self.lcdc.window_enabled() {
+        //     self.render_window_line();
+        // }
 
-        if self.lcdc.sprites_enabled() {
-            self.draw_sprites_on_ly();
-        }
+        // if self.lcdc.sprites_enabled() {
+        //     self.draw_sprites_on_ly();
+        // }
     }
 
     fn render_background_line(&mut self) {
@@ -362,8 +362,6 @@ impl Ppu {
         tile_attr: u8,
         tileset_address: usize,
     ) -> [u8; 4] {
-        // TODO: Use more of the BG tile attributes
-
         let tile_data_vram_bank = ((tile_attr & 8) >> 3) as usize;
 
         // Vertical flip

@@ -43,6 +43,16 @@ const KEY1: u16 = 0xFF4D;
 const BOOTROM_DISABLE: u16 = 0xFF50;
 
 const VRAM_DMA_START: u16 = 0xFF51;
+/// VRAM DMA Source High
+const HDMA1: u16 = 0xFF51;
+/// VRAM DMA Source Low
+const HDMA2: u16 = 0xFF52;
+/// VRAM DMA Dest High
+const HDMA3: u16 = 0xFF53;
+/// VRAM DMA Dest Low
+const HDMA4: u16 = 0xFF54;
+/// VRAM DMA Length/Mode/Start
+const HDMA5: u16 = 0xFF55;
 const VRAM_DMA_END: u16 = 0xFF55;
 
 const WRAM_BANK_SELECT: u16 = 0xFF70;
@@ -184,7 +194,8 @@ impl Mmu {
             VRAM_BANK_ADDRESS => return self.ppu.borrow().read(address),
             KEY1 => return self.system_state.borrow().key1,
             BOOTROM_DISABLE => return u8::from(self.system_state.borrow().bootrom_mapped),
-            VRAM_DMA_START..=VRAM_DMA_END => log::debug!("Read from VRAM DMA: {:#06X}", address),
+            HDMA1..=HDMA4 => return 0xFF,
+            HDMA5 => return self.system_state.borrow().hdma_state.hdma_stat,
             PALETTE_START..=PALETTE_END => return self.ppu.borrow().read(address),
             WRAM_BANK_SELECT => return self.wram_bank as u8,
             HRAM_START..=HRAM_END => return self.hram[(address - HRAM_START) as usize],
@@ -257,11 +268,27 @@ impl Mmu {
                 self.system_state.borrow_mut().key1 = key1;
             }
             BOOTROM_DISABLE => self.disable_bootrom(data),
-            VRAM_DMA_START..=VRAM_DMA_END => log::debug!(
-                "Write to VRAM DMA address: {:#06X} data: {:#04X}",
-                address,
-                data
-            ),
+            HDMA1 => self
+                .system_state
+                .borrow_mut()
+                .hdma_state
+                .write_src_high(data),
+            HDMA2 => self
+                .system_state
+                .borrow_mut()
+                .hdma_state
+                .write_src_low(data),
+            HDMA3 => self
+                .system_state
+                .borrow_mut()
+                .hdma_state
+                .write_dest_high(data),
+            HDMA4 => self
+                .system_state
+                .borrow_mut()
+                .hdma_state
+                .write_dest_low(data),
+            HDMA5 => {}
             PALETTE_START..=PALETTE_END => self.ppu.borrow_mut().write(address, data),
             WRAM_BANK_SELECT => self.wram_bank = data as usize & 0b111,
             HRAM_START..=HRAM_END => self.hram[address as usize - 0xFF80] = data,

@@ -7,7 +7,7 @@ use crate::cartridge::init_mbc_from_rom;
 use crate::interrupts::InterruptHandler;
 use crate::joypad::{Joypad, JoypadKeys};
 use crate::{cpu::Cpu, mmu::Mmu, ppu::Ppu};
-use crate::{ExecutionState, HardwareSupport, SystemState};
+use crate::{ExecutionState, HardwareSupport, HdmaState, SystemState};
 
 const CYCLES_PER_FRAME: u64 = 17556;
 
@@ -38,6 +38,11 @@ impl Gameboy {
             total_cycles: 0,
             key1: 0x00,
             bootrom_mapped: true,
+            hdma_state: HdmaState {
+                source_addr: 0xFFFF,
+                dest_addr: 0xFFFF,
+                hdma_stat: 0x00,
+            },
         }));
 
         let interrupts = Rc::new(RefCell::new(InterruptHandler::default()));
