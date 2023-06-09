@@ -308,11 +308,12 @@ impl Mmu {
                 self.system_state.borrow_mut().hdma_state.hdma_stat |= 0x80;
             } else {
                 let len = ((data as usize & 0x7F) + 1) * 0x10;
-                let mut src_addr = self.system_state.borrow().hdma_state.source_addr;
-                let mut dest_addr = self.system_state.borrow().hdma_state.dest_addr | 0x8000;
+                let mut src_addr = self.system_state.borrow().hdma_state.source_addr & 0xFFF0;
+                let mut dest_addr =
+                    (self.system_state.borrow().hdma_state.dest_addr & 0x1FF0) | 0x8000;
 
                 log::debug!(
-                    "Running GMDA from {:#06X} to {:#06X} of {} bytes",
+                    "Running GDMA from {:#06X} to {:#06X} of {} bytes",
                     src_addr,
                     dest_addr,
                     len
@@ -320,7 +321,7 @@ impl Mmu {
 
                 for _ in 0..len {
                     let value = self.raw_read(src_addr);
-                    self.write(dest_addr, value);
+                    self.raw_write(dest_addr, value);
                     src_addr += 1;
                     dest_addr += 1;
                 }
