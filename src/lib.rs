@@ -23,7 +23,6 @@ pub(crate) enum HardwareSupport {
 #[derive(Debug, Clone, Copy, PartialEq)]
 enum ExecutionState {
     ExecutingProgram,
-    PerformingGDMA,
     PreparingSpeedSwitch,
     Halted,
 }
@@ -35,12 +34,16 @@ struct HdmaState {
 }
 
 impl HdmaState {
+    pub(crate) fn is_hdma_active(&self) -> bool {
+        (self.hdma_stat & 0x80) == 0x00
+    }
+
     fn write_high(attrib: &mut u16, high: u8) {
-        *attrib = (*attrib & 0x00FF) | (high as u16) << 8;
+        *attrib = (*attrib & 0x00FF) | ((high as u16) << 8);
     }
 
     fn write_low(attrib: &mut u16, low: u8) {
-        *attrib = (*attrib & 0x00FF) | (low as u16);
+        *attrib = (*attrib & 0xFF00) | (low as u16);
     }
 
     pub(crate) fn write_src_high(&mut self, high: u8) {

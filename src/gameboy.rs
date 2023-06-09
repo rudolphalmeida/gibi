@@ -89,7 +89,12 @@ impl Gameboy {
             machine_cycles + CYCLES_PER_FRAME * speed_multiplier - carry_over_cycles;
 
         while self.system_state.borrow().total_cycles < target_machine_cycles {
-            self.cpu.execute();
+            let execution_state = self.system_state.borrow().execution_state;
+            match execution_state {
+                ExecutionState::ExecutingProgram => self.cpu.execute(),
+                ExecutionState::PreparingSpeedSwitch => self.mmu.borrow().tick(),
+                ExecutionState::Halted => self.mmu.borrow().tick(),
+            }
         }
 
         let carry_over_cycles = self.system_state.borrow().total_cycles - target_machine_cycles;

@@ -10,7 +10,7 @@ use crate::ppu::{
 };
 use crate::serial::{Serial, SERIAL_END, SERIAL_START};
 use crate::timer::{Timer, TIMER_END, TIMER_START};
-use crate::SystemState;
+use crate::{HardwareSupport, SystemState};
 
 use crate::{
     cartridge::{
@@ -288,12 +288,48 @@ impl Mmu {
                 .borrow_mut()
                 .hdma_state
                 .write_dest_low(data),
+            HDMA5 if self.system_state.borrow().hardware_support != HardwareSupport::DmgCompat => {
+                self.on_hdma5_write(data)
+            }
             HDMA5 => {}
             PALETTE_START..=PALETTE_END => self.ppu.borrow_mut().write(address, data),
             WRAM_BANK_SELECT => self.wram_bank = data as usize & 0b111,
             HRAM_START..=HRAM_END => self.hram[address as usize - 0xFF80] = data,
             INTERRUPT_ENABLE_ADDRESS => self.interrupts.borrow_mut().write(address, data),
             _ => log::error!("Unknown address to Mmu::write {:#06X}", address),
+        }
+    }
+
+    fn on_hdma5_write(&mut self, data: u8) {
+        if (data & 0x80) == 0 {
+            // GDMA
+            if self.system_state.borrow().hdma_state.is_hdma_active() {
+                // If HDMA is active, cancel it keeping the remaining length
+                self.system_state.borrow_mut().hdma_state.hdma_stat |= 0x80;
+            } else {
+                let len = ((data as usize & 0x7F) + 1) * 0x10;
+                let mut src_addr = self.system_state.borrow().hdma_state.source_addr;
+                let mut dest_addr = self.system_state.borrow().hdma_state.dest_addr | 0x8000;
+
+                log::debug!(
+                    "Running GMDA from {:#06X} to {:#06X} of {} bytes",
+                    src_addr,
+                    dest_addr,
+                    len
+                );
+
+                for _ in 0..len {
+                    let value = self.raw_read(src_addr);
+                    self.write(dest_addr, value);
+                    src_addr += 1;
+                    dest_addr += 1;
+                }
+
+                self.system_state.borrow_mut().hdma_state.hdma_stat = 0xFF;
+            }
+        } else {
+            // HDMA
+            log::info!("TODO: Setup HDMA");
         }
     }
 
