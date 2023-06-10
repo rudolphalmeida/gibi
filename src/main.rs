@@ -1,7 +1,7 @@
-use std::path::PathBuf;
+use std::{collections::HashMap, path::PathBuf};
 
-use eframe::egui::{self, menu};
-use gibi::{gameboy::Gameboy, GAMEBOY_HEIGHT, GAMEBOY_WIDTH};
+use eframe::egui::{self, menu, Key};
+use gibi::{gameboy::Gameboy, joypad::JoypadKeys, GAMEBOY_HEIGHT, GAMEBOY_WIDTH};
 
 mod options;
 mod ui;
@@ -77,6 +77,27 @@ impl eframe::App for GameboyApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         match &mut self.gameboy {
             Some(gb_ctx) => {
+                let joypad_keymap: HashMap<Key, JoypadKeys> = HashMap::from([
+                    (Key::Z, JoypadKeys::B),
+                    (Key::X, JoypadKeys::A),
+                    (Key::N, JoypadKeys::Select),
+                    (Key::M, JoypadKeys::Start),
+                    (Key::ArrowDown, JoypadKeys::Down),
+                    (Key::ArrowUp, JoypadKeys::Up),
+                    (Key::ArrowLeft, JoypadKeys::Left),
+                    (Key::ArrowRight, JoypadKeys::Right),
+                ]);
+
+                for (key, joypad_key) in joypad_keymap {
+                    if ctx.input(|i| i.key_down(key)) {
+                        gb_ctx.keydown(joypad_key);
+                    }
+
+                    if ctx.input(|i| i.key_released(key)) {
+                        gb_ctx.keyup(joypad_key);
+                    }
+                }
+
                 gb_ctx.run_one_frame();
                 gb_ctx.copy_framebuffer_to_draw_target(&mut self.pixels);
                 ctx.request_repaint();
