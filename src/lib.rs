@@ -1,5 +1,7 @@
 #![allow(dead_code)] // Only for development
 
+use ppu::{LCD_HEIGHT, LCD_WIDTH};
+
 mod apu;
 mod cartridge;
 mod cpu;
@@ -12,6 +14,9 @@ mod palettes;
 pub mod ppu;
 mod serial;
 mod timer;
+
+pub const GAMEBOY_WIDTH: f32 = LCD_WIDTH as f32;
+pub const GAMEBOY_HEIGHT: f32 = LCD_HEIGHT as f32;
 
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub(crate) enum HardwareSupport {
