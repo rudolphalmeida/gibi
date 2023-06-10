@@ -1,5 +1,7 @@
+use std::path::PathBuf;
+
 use eframe::egui::{self, menu};
-use gibi::{GAMEBOY_HEIGHT, GAMEBOY_WIDTH};
+use gibi::{gameboy::Gameboy, GAMEBOY_HEIGHT, GAMEBOY_WIDTH};
 
 mod options;
 mod ui;
@@ -17,13 +19,24 @@ fn main() -> Result<(), eframe::Error> {
     )
 }
 
-struct GameboyApp {}
+struct GameboyApp {
+    loaded_rom_file: Option<PathBuf>,
+    gameboy: Option<Gameboy>,
+    pixels: Vec<u8>,
+}
 
 impl GameboyApp {
     fn show_main_menu(&mut self, ui: &mut egui::Ui) {
         menu::bar(ui, |ui| {
             ui.menu_button("File", |ui| {
-                if ui.button("Open").clicked() {}
+                if ui.button("Open").clicked() {
+                    if let Some(path) = rfd::FileDialog::new().pick_file() {
+                        let rom = std::fs::read(&path).unwrap();
+
+                        self.loaded_rom_file = Some(path);
+                        self.gameboy = Some(Gameboy::new(rom, None));
+                    }
+                }
                 if ui.button("Open Recent").clicked() {}
                 if ui.button("Exit").clicked() {}
             });
@@ -51,12 +64,26 @@ impl GameboyApp {
 
 impl Default for GameboyApp {
     fn default() -> Self {
-        Self {}
+        Self {
+            loaded_rom_file: None,
+            gameboy: None,
+            // RGBA pixels
+            pixels: vec![0x00; GAMEBOY_WIDTH as usize * GAMEBOY_HEIGHT as usize * 4],
+        }
     }
 }
 
 impl eframe::App for GameboyApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        match &mut self.gameboy {
+            Some(gb_ctx) => {
+                gb_ctx.run_one_frame();
+                gb_ctx.copy_framebuffer_to_draw_target(&mut self.pixels);
+                ctx.request_repaint();
+            }
+            None => {}
+        }
+
         egui::CentralPanel::default().show(ctx, |ui| self.show_main_menu(ui));
     }
 }
