@@ -1,110 +1,20 @@
 {
-    // Use IntelliSense to learn about possible attributes.
-    // Hover to view descriptions of existing attributes.
-    // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
-    "version": "0.2.0",
-    "configurations": [
-        {
-            "type": "lldb",
-            "request": "launch",
-            "name": "Run executable 'gibi' with Tetris.gb",
-            "program": "target/debug/gibi",
-            "args": [
-                "roms/Tetris.gb",
-                "-s5"
-            ],
-            "cwd": "${workspaceFolder}",
-            "env": {
-                "RUST_LOG": "debug"
-            },
-            "sourceLanguages": [
-                "rust"
-            ]
-        },
-        {
-            "type": "lldb",
-            "request": "launch",
-            "name": "Run executable 'gibi' with SuperMarioLand.gb",
-            "program": "target/debug/gibi",
-            "args": [
-                "roms/SuperMarioLand.gb",
-                "-s5"
-            ],
-            "cwd": "${workspaceFolder}",
-            "env": {
-                "RUST_LOG": "debug"
-            },
-            "sourceLanguages": [
-                "rust"
-            ]
-        },
-        {
-            "type": "lldb",
-            "request": "launch",
-            "name": "Run executable 'gibi' with SuperMarioLand2.gb",
-            "program": "target/debug/gibi",
-            "args": [
-                "roms/SuperMarioLand2.gb",
-                "-s5"
-            ],
-            "cwd": "${workspaceFolder}",
-            "env": {
-                "RUST_LOG": "debug"
-            },
-            "sourceLanguages": [
-                "rust"
-            ]
-        },
-        {
-            "type": "lldb",
-            "request": "launch",
-            "name": "Run executable 'gibi' with LinksAwakening.gb",
-            "program": "target/debug/gibi",
-            "args": [
-                "roms/LinksAwakening.gb",
-                "-s5"
-            ],
-            "cwd": "${workspaceFolder}",
-            "env": {
-                "RUST_LOG": "debug"
-            },
-            "sourceLanguages": [
-                "rust"
-            ]
-        },
-        {
-            "type": "lldb",
-            "request": "launch",
-            "name": "Run executable 'gibi' with dmg_acid2.gb",
-            "program": "target/debug/gibi",
-            "args": [
-                "roms/dmg-acid2.gb",
-                "-s5"
-            ],
-            "cwd": "${workspaceFolder}",
-            "env": {
-                "RUST_LOG": "debug"
-            },
-            "sourceLanguages": [
-                "rust"
-            ]
-        },
-        {
-            "type": "lldb",
-            "request": "launch",
-            "name": "Run executable 'gibi' with instr_timing.gb",
-            "program": "target/debug/gibi",
-            "args": [
-                "roms/gb-test-roms/instr_timing/instr_timing.gb",
-                "-s5"
-            ],
-            "cwd": "${workspaceFolder}",
-            "env": {
-                "RUST_LOG": "debug"
-            },
-            "sourceLanguages": [
-                "rust"
-            ]
-        }
-    ]
+  // Use IntelliSense to learn about possible attributes.
+  // Hover to view descriptions of existing attributes.
+  // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "type": "lldb",
+      "request": "launch",
+      "name": "Run executable 'gibi'",
+      "program": "target/release/gibi",
+      "args": [],
+      "cwd": "${workspaceFolder}",
+      "env": {
+        "RUST_LOG": "debug"
+      },
+      "sourceLanguages": ["rust"]
+    }
+  ]
 }
