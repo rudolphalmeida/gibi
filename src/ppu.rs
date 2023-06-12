@@ -110,7 +110,7 @@ pub(crate) struct Ppu {
 
     interrupts: Rc<RefCell<InterruptHandler>>,
 
-    framebuffer: [u8; (LCD_WIDTH * LCD_HEIGHT * 4) as usize],
+    framebuffer: Vec<u8>,
 
     system_state: Rc<RefCell<SystemState>>,
 }
@@ -145,7 +145,7 @@ impl Ppu {
             color_bg_palettes: [0xFF; COLOR_PALETTE_SIZE],
             color_obj_palettes: [0xFF; COLOR_PALETTE_SIZE],
             interrupts,
-            framebuffer: [0x00; (LCD_WIDTH * LCD_HEIGHT * 4) as usize], // We are using a RGBA format pixel buffer
+            framebuffer: vec![0x00; (LCD_WIDTH * LCD_HEIGHT * 4) as usize], // We are using a RGBA format pixel buffer
             system_state,
         }
     }
@@ -265,8 +265,8 @@ impl Ppu {
         }
     }
 
-    pub fn copy_framebuffer_to_draw_target(&self, buffer: &mut [u8]) {
-        buffer.copy_from_slice(self.framebuffer.as_slice());
+    pub fn framebuffer(&self) -> &Vec<u8> {
+        &self.framebuffer
     }
 
     fn render_line(&mut self) {

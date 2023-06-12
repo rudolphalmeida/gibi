@@ -19,11 +19,11 @@ use crate::options::Options;
 
 const TARGET_FPS: f32 = 60.0;
 
-pub(crate) struct Ui {}
+pub(crate) struct _Ui {}
 
-impl Ui {
+impl _Ui {
     pub fn new() -> Self {
-        Ui {}
+        _Ui {}
     }
 
     pub fn run(&self) {
@@ -113,7 +113,7 @@ impl Ui {
             }
 
             gameboy.run_one_frame();
-            gameboy.copy_framebuffer_to_draw_target(&mut pixels);
+            // gameboy.copy_framebuffer_to_draw_target(&mut pixels);
 
             renderer.clear();
             texture

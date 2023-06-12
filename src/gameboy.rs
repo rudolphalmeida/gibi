@@ -1,3 +1,4 @@
+use std::cell::Ref;
 use std::path::PathBuf;
 use std::{cell::RefCell, rc::Rc};
 use std::{fs, io};
@@ -101,8 +102,8 @@ impl Gameboy {
         self.system_state.borrow_mut().carry_over_cycles = carry_over_cycles;
     }
 
-    pub fn copy_framebuffer_to_draw_target(&self, buffer: &mut [u8]) {
-        self.ppu.borrow().copy_framebuffer_to_draw_target(buffer);
+    pub fn framebuffer(&self) -> Ref<'_, Vec<u8>> {
+        Ref::map(self.ppu.borrow(), |ppu| ppu.framebuffer())
     }
 
     pub fn keydown(&mut self, key: JoypadKeys) {

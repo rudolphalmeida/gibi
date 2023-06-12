@@ -1,10 +1,21 @@
 use std::{collections::HashMap, path::PathBuf};
 
-use eframe::egui::{self, menu, Key};
+use eframe::{
+    egui::{self, menu, Key, TextureOptions},
+    epaint::{Color32, ColorImage, ImageDelta},
+    CreationContext,
+};
 use gibi::{gameboy::Gameboy, joypad::JoypadKeys, GAMEBOY_HEIGHT, GAMEBOY_WIDTH};
 
 mod options;
 mod ui;
+
+const TEXTURE_OPTIONS: egui::TextureOptions = TextureOptions {
+    magnification: egui::TextureFilter::Linear,
+    minification: egui::TextureFilter::Nearest,
+};
+const WIDTH: usize = GAMEBOY_WIDTH as usize;
+const HEIGHT: usize = GAMEBOY_HEIGHT as usize;
 
 fn main() -> Result<(), eframe::Error> {
     env_logger::init();
@@ -15,14 +26,14 @@ fn main() -> Result<(), eframe::Error> {
     eframe::run_native(
         "GiBi: Gameboy Color Emulator",
         options,
-        Box::new(|_cc| Box::<GameboyApp>::default()),
+        Box::new(|cc| Box::<GameboyApp>::new(GameboyApp::new(cc))),
     )
 }
 
 struct GameboyApp {
     loaded_rom_file: Option<PathBuf>,
     gameboy: Option<Gameboy>,
-    pixels: Vec<u8>,
+    tex: egui::TextureHandle,
 }
 
 impl GameboyApp {
@@ -62,13 +73,17 @@ impl GameboyApp {
     }
 }
 
-impl Default for GameboyApp {
-    fn default() -> Self {
+impl GameboyApp {
+    fn new(cc: &CreationContext) -> Self {
+        let tex = cc.egui_ctx.load_texture(
+            "game-image",
+            ColorImage::new([WIDTH, HEIGHT], Color32::BLACK),
+            TEXTURE_OPTIONS,
+        );
         Self {
             loaded_rom_file: None,
             gameboy: None,
-            // RGBA pixels
-            pixels: vec![0x00; GAMEBOY_WIDTH as usize * GAMEBOY_HEIGHT as usize * 4],
+            tex,
         }
     }
 }
@@ -99,12 +114,22 @@ impl eframe::App for GameboyApp {
                 }
 
                 gb_ctx.run_one_frame();
-                gb_ctx.copy_framebuffer_to_draw_target(&mut self.pixels);
+                let frame = gb_ctx.framebuffer();
+                let image = ColorImage::from_rgba_unmultiplied([WIDTH, HEIGHT], &frame);
+                let delta = ImageDelta::full(image, TEXTURE_OPTIONS);
+                ctx.tex_manager().write().set(self.tex.id(), delta);
+
+                egui::CentralPanel::default().show(ctx, |ui| {
+                    ui.add(egui::Image::new(&self.tex, self.tex.size_vec2()));
+                });
+
                 ctx.request_repaint();
             }
             None => {}
         }
 
-        egui::CentralPanel::default().show(ctx, |ui| self.show_main_menu(ui));
+        egui::TopBottomPanel::top("debug-panel").show(ctx, |ui| {
+            self.show_main_menu(ui);
+        });
     }
 }
