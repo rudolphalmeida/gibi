@@ -17,7 +17,8 @@ const HEIGHT: usize = GAMEBOY_HEIGHT as usize;
 fn main() -> Result<(), eframe::Error> {
     env_logger::init();
     let options = eframe::NativeOptions {
-        initial_window_size: Some(egui::vec2(GAMEBOY_WIDTH, GAMEBOY_HEIGHT)),
+        initial_window_size: Some(egui::vec2(1250.0, 760.0)),
+        vsync: true,
         ..Default::default()
     };
     eframe::run_native(
@@ -94,7 +95,7 @@ impl GameboyApp {
             loaded_rom_file: None,
             gameboy: None,
             tex,
-            game_scale_factor: 1.0,
+            game_scale_factor: 5.0,
         }
     }
 }
@@ -104,6 +105,20 @@ impl eframe::App for GameboyApp {
         egui::TopBottomPanel::top("debug-panel").show(ctx, |ui| {
             self.show_main_menu(ui);
         });
+
+        egui::SidePanel::left("left-debug-panel")
+            .min_width(200.0)
+            .resizable(true)
+            .show(ctx, |ui| {
+                ui.label("Left Debug");
+            });
+
+        egui::SidePanel::right("right-debug-panel")
+            .min_width(200.0)
+            .resizable(true)
+            .show(ctx, |ui| {
+                ui.label("Right Debug");
+            });
 
         match &mut self.gameboy {
             Some(gb_ctx) => {
