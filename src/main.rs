@@ -57,28 +57,22 @@ impl GameboyApp {
                 if ui.button("Stop").clicked() {}
             });
 
-            ui.menu_button("View", |ui| {
-                ui.menu_button("Scale", |ui| {
-                    if ui.button("1x").clicked() {
-                        self.game_scale_factor = 1.0;
-                    }
-                    if ui.button("2x").clicked() {
-                        self.game_scale_factor = 2.0;
-                    }
-                    if ui.button("3x").clicked() {
-                        self.game_scale_factor = 3.0;
-                    }
-                    if ui.button("4x").clicked() {
-                        self.game_scale_factor = 4.0;
-                    }
-                    if ui.button("5x").clicked() {
-                        self.game_scale_factor = 5.0;
-                    }
-                });
-
-                if ui.button("CPU").clicked() {}
-                if ui.button("PPU").clicked() {}
-                if ui.button("Background Maps").clicked() {}
+            ui.menu_button("Scale", |ui| {
+                if ui.button("1x").clicked() {
+                    self.game_scale_factor = 1.0;
+                }
+                if ui.button("2x").clicked() {
+                    self.game_scale_factor = 2.0;
+                }
+                if ui.button("3x").clicked() {
+                    self.game_scale_factor = 3.0;
+                }
+                if ui.button("4x").clicked() {
+                    self.game_scale_factor = 4.0;
+                }
+                if ui.button("5x").clicked() {
+                    self.game_scale_factor = 5.0;
+                }
             });
         });
     }
@@ -110,14 +104,28 @@ impl eframe::App for GameboyApp {
             .min_width(200.0)
             .resizable(true)
             .show(ctx, |ui| {
-                ui.label("Left Debug");
+                egui::ScrollArea::vertical().show(ui, |ui| {
+                    egui::CollapsingHeader::new("CPU")
+                        .default_open(true)
+                        .show(ui, |_ui| {});
+                    egui::CollapsingHeader::new("Memory")
+                        .default_open(true)
+                        .show(ui, |_ui| {});
+                });
             });
 
         egui::SidePanel::right("right-debug-panel")
             .min_width(200.0)
             .resizable(true)
             .show(ctx, |ui| {
-                ui.label("Right Debug");
+                egui::ScrollArea::vertical().show(ui, |ui| {
+                    egui::CollapsingHeader::new("PPU")
+                        .default_open(true)
+                        .show(ui, |_ui| {});
+                    egui::CollapsingHeader::new("Nametables")
+                        .default_open(true)
+                        .show(ui, |_ui| {});
+                });
             });
 
         match &mut self.gameboy {
