@@ -7,9 +7,6 @@ use eframe::{
 };
 use gibi::{gameboy::Gameboy, joypad::JoypadKeys, GAMEBOY_HEIGHT, GAMEBOY_WIDTH};
 
-mod options;
-mod ui;
-
 const TEXTURE_OPTIONS: egui::TextureOptions = TextureOptions {
     magnification: egui::TextureFilter::Linear,
     minification: egui::TextureFilter::Nearest,
