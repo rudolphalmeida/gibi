@@ -8,7 +8,7 @@ use eframe::{
 use gibi::{gameboy::Gameboy, joypad::JoypadKeys, GAMEBOY_HEIGHT, GAMEBOY_WIDTH};
 
 const TEXTURE_OPTIONS: egui::TextureOptions = TextureOptions {
-    magnification: egui::TextureFilter::Linear,
+    magnification: egui::TextureFilter::Nearest,
     minification: egui::TextureFilter::Nearest,
 };
 const WIDTH: usize = GAMEBOY_WIDTH as usize;
@@ -31,6 +31,7 @@ struct GameboyApp {
     loaded_rom_file: Option<PathBuf>,
     gameboy: Option<Gameboy>,
     tex: egui::TextureHandle,
+    game_scale_factor: f32,
 }
 
 impl GameboyApp {
@@ -57,9 +58,21 @@ impl GameboyApp {
 
             ui.menu_button("View", |ui| {
                 ui.menu_button("Scale", |ui| {
-                    if ui.button("1x").clicked() {}
-                    if ui.button("2x").clicked() {}
-                    if ui.button("3x").clicked() {}
+                    if ui.button("1x").clicked() {
+                        self.game_scale_factor = 1.0;
+                    }
+                    if ui.button("2x").clicked() {
+                        self.game_scale_factor = 2.0;
+                    }
+                    if ui.button("3x").clicked() {
+                        self.game_scale_factor = 3.0;
+                    }
+                    if ui.button("4x").clicked() {
+                        self.game_scale_factor = 4.0;
+                    }
+                    if ui.button("5x").clicked() {
+                        self.game_scale_factor = 5.0;
+                    }
                 });
 
                 if ui.button("CPU").clicked() {}
@@ -81,12 +94,17 @@ impl GameboyApp {
             loaded_rom_file: None,
             gameboy: None,
             tex,
+            game_scale_factor: 1.0,
         }
     }
 }
 
 impl eframe::App for GameboyApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        egui::TopBottomPanel::top("debug-panel").show(ctx, |ui| {
+            self.show_main_menu(ui);
+        });
+
         match &mut self.gameboy {
             Some(gb_ctx) => {
                 let joypad_keymap: HashMap<Key, JoypadKeys> = HashMap::from([
@@ -117,16 +135,17 @@ impl eframe::App for GameboyApp {
                 ctx.tex_manager().write().set(self.tex.id(), delta);
 
                 egui::CentralPanel::default().show(ctx, |ui| {
-                    ui.add(egui::Image::new(&self.tex, self.tex.size_vec2()));
+                    ui.add(egui::Image::new(
+                        &self.tex,
+                        self.tex.size_vec2() * self.game_scale_factor,
+                    ));
                 });
 
                 ctx.request_repaint();
             }
-            None => {}
+            None => {
+                egui::CentralPanel::default().show(ctx, |_ui| {});
+            }
         }
-
-        egui::TopBottomPanel::top("debug-panel").show(ctx, |ui| {
-            self.show_main_menu(ui);
-        });
     }
 }
