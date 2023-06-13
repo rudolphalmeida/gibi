@@ -14,7 +14,8 @@
       "env": {
         "RUST_LOG": "debug"
       },
-      "sourceLanguages": ["rust"]
+      "sourceLanguages": ["rust"],
+      "preLaunchTask": "rust: cargo build"
     }
   ]
 }
