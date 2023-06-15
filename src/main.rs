@@ -83,7 +83,8 @@ impl EmulationThread {
                         self.loaded_rom_file = Some(path);
                         self.gameboy = Some(Gameboy::new(rom, None));
                     }
-                    EmulatorCommand::Start => self.running = true,
+                    EmulatorCommand::Start if self.gameboy.is_some() => self.running = true,
+                    EmulatorCommand::Start => {}
                     EmulatorCommand::RunFrame if self.running => {
                         let gb_ctx = self.gameboy.as_mut().unwrap();
                         gb_ctx.run_one_frame();
@@ -96,6 +97,7 @@ impl EmulationThread {
                     EmulatorCommand::RunFrame => {}
                     EmulatorCommand::Pause => self.running = false,
                     EmulatorCommand::Stop => {
+                        // TODO: Save if a game is already running
                         self.running = false;
                         self.gameboy = None;
                         self.loaded_rom_file = None;
@@ -109,6 +111,7 @@ impl EmulationThread {
                     }
                     EmulatorCommand::KeyReleased(_) => {}
                     EmulatorCommand::Exit => {
+                        // TODO: Save if a game is already running
                         log::info!("Received request to quit. Terminate emulation thread");
                         break;
                     }
@@ -267,8 +270,6 @@ impl eframe::App for GameboyApp {
         while let Ok(event) = self.event_rc.try_recv() {
             match event {
                 EmulatorEvent::Frame(delta) => {
-                    // let image = ColorImage::from_rgba_unmultiplied([WIDTH, HEIGHT], &frame);
-                    // let delta = ImageDelta::full(image, TEXTURE_OPTIONS);
                     ctx.tex_manager().write().set(self.tex.id(), delta);
 
                     egui::CentralPanel::default().show(ctx, |ui| {
