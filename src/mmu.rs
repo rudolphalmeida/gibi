@@ -312,13 +312,6 @@ impl Mmu {
                 let mut dest_addr =
                     (self.system_state.borrow().hdma_state.dest_addr & 0x1FF0) | 0x8000;
 
-                log::debug!(
-                    "Running GDMA from {:#06X} to {:#06X} of {} bytes",
-                    src_addr,
-                    dest_addr,
-                    len
-                );
-
                 for _ in 0..len {
                     let value = self.raw_read(src_addr);
                     self.raw_write(dest_addr, value);

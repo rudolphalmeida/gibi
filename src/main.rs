@@ -1,11 +1,18 @@
-use std::{collections::HashMap, path::PathBuf, sync::mpsc, thread::JoinHandle};
+use std::{
+    collections::HashMap,
+    path::PathBuf,
+    sync::{mpsc, Arc, Mutex},
+    thread::JoinHandle,
+};
 
 use eframe::{
     egui::{self, menu, Key, TextureOptions},
     epaint::{Color32, ColorImage, ImageDelta},
     CreationContext,
 };
-use gibi::{gameboy::Gameboy, joypad::JoypadKeys, GAMEBOY_HEIGHT, GAMEBOY_WIDTH};
+use gibi::{
+    gameboy::Gameboy, joypad::JoypadKeys, EmulatorEvent, Frame, GAMEBOY_HEIGHT, GAMEBOY_WIDTH,
+};
 
 const TEXTURE_OPTIONS: egui::TextureOptions = TextureOptions {
     magnification: egui::TextureFilter::Nearest,
@@ -46,14 +53,12 @@ enum EmulatorCommand {
     Exit,
 }
 
-enum EmulatorEvent {
-    Frame(ImageDelta),
-}
-
 struct EmulationThread {
     loaded_rom_file: Option<PathBuf>,
     gameboy: Option<Gameboy>,
     running: bool,
+
+    frame: Frame,
 
     command_rc: mpsc::Receiver<EmulatorCommand>,
     event_tx: mpsc::Sender<EmulatorEvent>,
@@ -61,6 +66,7 @@ struct EmulationThread {
 
 impl EmulationThread {
     fn new(
+        frame: Frame,
         command_rc: mpsc::Receiver<EmulatorCommand>,
         event_tx: mpsc::Sender<EmulatorEvent>,
     ) -> Self {
@@ -68,6 +74,7 @@ impl EmulationThread {
             loaded_rom_file: None,
             gameboy: None,
             running: false,
+            frame,
             command_rc,
             event_tx,
         }
@@ -81,18 +88,19 @@ impl EmulationThread {
                         // TODO: Save if a game is already running
                         let rom = std::fs::read(&path).unwrap();
                         self.loaded_rom_file = Some(path);
-                        self.gameboy = Some(Gameboy::new(rom, None));
+                        self.gameboy = Some(Gameboy::new(
+                            Arc::clone(&self.frame),
+                            rom,
+                            None,
+                            self.event_tx.clone(),
+                        ));
                     }
                     EmulatorCommand::Start if self.gameboy.is_some() => self.running = true,
                     EmulatorCommand::Start => {}
                     EmulatorCommand::RunFrame if self.running => {
                         let gb_ctx = self.gameboy.as_mut().unwrap();
                         gb_ctx.run_one_frame();
-                        let frame = gb_ctx.framebuffer();
-                        let image = ColorImage::from_rgba_unmultiplied([WIDTH, HEIGHT], &frame);
-                        let delta = ImageDelta::full(image, TEXTURE_OPTIONS);
-
-                        self.event_tx.send(EmulatorEvent::Frame(delta)).unwrap();
+                        self.event_tx.send(EmulatorEvent::CompletedFrame).unwrap();
                     }
                     EmulatorCommand::RunFrame => {}
                     EmulatorCommand::Pause => self.running = false,
@@ -123,6 +131,7 @@ impl EmulationThread {
 }
 
 struct GameboyApp {
+    frame: Frame,
     tex: egui::TextureHandle,
     game_scale_factor: f32,
 
@@ -139,19 +148,25 @@ impl GameboyApp {
             TEXTURE_OPTIONS,
         );
 
+        let frame = Arc::new(Mutex::new(vec![0x00; (WIDTH * HEIGHT * 4) as usize]));
+
         let (command_tx, command_rc) = mpsc::sync_channel(0);
         let (event_tx, event_rc) = mpsc::channel();
-        let emulation_thread = std::thread::Builder::new()
-            .name("emulation-thread".to_owned())
-            .spawn(move || {
-                EmulationThread::new(command_rc, event_tx).run();
-            })
-            .expect("Failed to spawn emulation thread");
+        let emulation_thread = {
+            let frame = Arc::clone(&frame);
+            std::thread::Builder::new()
+                .name("emulation-thread".to_owned())
+                .spawn(move || {
+                    EmulationThread::new(Arc::clone(&frame), command_rc, event_tx).run();
+                })
+                .expect("Failed to spawn emulation thread")
+        };
 
         Self {
             tex,
             game_scale_factor: 5.0,
             emulation_thread: Some(emulation_thread),
+            frame,
             command_tx,
             event_rc,
         }
@@ -269,7 +284,11 @@ impl eframe::App for GameboyApp {
 
         while let Ok(event) = self.event_rc.try_recv() {
             match event {
-                EmulatorEvent::Frame(delta) => {
+                EmulatorEvent::CompletedFrame => {
+                    let frame = self.frame.lock().unwrap();
+                    let framebuffer = frame.as_slice();
+                    let image = ColorImage::from_rgba_unmultiplied([WIDTH, HEIGHT], framebuffer);
+                    let delta = ImageDelta::full(image, TEXTURE_OPTIONS);
                     ctx.tex_manager().write().set(self.tex.id(), delta);
 
                     egui::CentralPanel::default().show(ctx, |ui| {

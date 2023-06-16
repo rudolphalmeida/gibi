@@ -1,5 +1,5 @@
-use std::cell::Ref;
 use std::path::PathBuf;
+use std::sync::mpsc::Sender;
 use std::{cell::RefCell, rc::Rc};
 use std::{fs, io};
 
@@ -8,7 +8,7 @@ use crate::cartridge::init_mbc_from_rom;
 use crate::interrupts::InterruptHandler;
 use crate::joypad::{Joypad, JoypadKeys};
 use crate::{cpu::Cpu, mmu::Mmu, ppu::Ppu};
-use crate::{ExecutionState, HardwareSupport, HdmaState, SystemState};
+use crate::{EmulatorEvent, ExecutionState, Frame, HardwareSupport, HdmaState, SystemState};
 
 const CYCLES_PER_FRAME: u64 = 17556;
 
@@ -19,10 +19,16 @@ pub struct Gameboy {
     cpu: Cpu,
 
     system_state: Rc<RefCell<SystemState>>,
+    event_tx: Sender<EmulatorEvent>,
 }
 
 impl Gameboy {
-    pub fn new(rom: Vec<u8>, ram: Option<Vec<u8>>) -> Self {
+    pub fn new(
+        frame: Frame,
+        rom: Vec<u8>,
+        ram: Option<Vec<u8>>,
+        event_tx: Sender<EmulatorEvent>,
+    ) -> Self {
         let cart = init_mbc_from_rom(rom, ram);
         let hardware_support = cart.hardware_supported();
 
@@ -49,8 +55,10 @@ impl Gameboy {
         let interrupts = Rc::new(RefCell::new(InterruptHandler::default()));
 
         let ppu = Rc::new(RefCell::new(Ppu::new(
+            frame,
             Rc::clone(&interrupts),
             Rc::clone(&system_state),
+            event_tx.clone(),
         )));
         let apu = Rc::new(RefCell::new(Apu::new()));
         let joypad = Rc::new(RefCell::new(Joypad::new(Rc::clone(&interrupts))));
@@ -78,6 +86,7 @@ impl Gameboy {
             cpu,
             joypad,
             ppu,
+            event_tx,
         }
     }
 
@@ -95,10 +104,6 @@ impl Gameboy {
 
         let carry_over_cycles = self.system_state.borrow().total_cycles - target_machine_cycles;
         self.system_state.borrow_mut().carry_over_cycles = carry_over_cycles;
-    }
-
-    pub fn framebuffer(&self) -> Ref<'_, Vec<u8>> {
-        Ref::map(self.ppu.borrow(), |ppu| ppu.framebuffer())
     }
 
     pub fn keydown(&mut self, key: JoypadKeys) {

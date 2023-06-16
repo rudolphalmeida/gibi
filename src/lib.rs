@@ -1,5 +1,7 @@
 #![allow(dead_code)] // Only for development
 
+use std::sync::{Arc, Mutex};
+
 use ppu::{LCD_HEIGHT, LCD_WIDTH};
 
 mod apu;
@@ -17,6 +19,13 @@ mod timer;
 
 pub const GAMEBOY_WIDTH: f32 = LCD_WIDTH as f32;
 pub const GAMEBOY_HEIGHT: f32 = LCD_HEIGHT as f32;
+
+pub type Frame = Arc<Mutex<Vec<u8>>>;
+
+pub enum EmulatorEvent {
+    /// Raised on Vblank
+    CompletedFrame,
+}
 
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub(crate) enum HardwareSupport {

@@ -1,10 +1,11 @@
 use std::cell::RefCell;
 use std::rc::Rc;
+use std::sync::mpsc::Sender;
 
 use crate::interrupts::{InterruptHandler, InterruptType};
 use crate::memory::Memory;
 use crate::palettes::{Palette, RGBA_WHITE};
-use crate::{HardwareSupport, SystemState};
+use crate::{EmulatorEvent, Frame, HardwareSupport, SystemState};
 
 pub(crate) const VRAM_START: u16 = 0x8000;
 pub(crate) const VRAM_END: u16 = 0x9FFF;
@@ -110,15 +111,18 @@ pub(crate) struct Ppu {
 
     interrupts: Rc<RefCell<InterruptHandler>>,
 
-    framebuffer: Vec<u8>,
+    frame: Frame,
+    event_tx: Sender<EmulatorEvent>,
 
     system_state: Rc<RefCell<SystemState>>,
 }
 
 impl Ppu {
     pub fn new(
+        frame: Frame,
         interrupts: Rc<RefCell<InterruptHandler>>,
         system_state: Rc<RefCell<SystemState>>,
+        event_tx: Sender<EmulatorEvent>,
     ) -> Self {
         let mut stat: LcdStat = Default::default();
         stat.set_mode(LcdStatus::OamSearch);
@@ -145,7 +149,8 @@ impl Ppu {
             color_bg_palettes: [0xFF; COLOR_PALETTE_SIZE],
             color_obj_palettes: [0xFF; COLOR_PALETTE_SIZE],
             interrupts,
-            framebuffer: vec![0x00; (LCD_WIDTH * LCD_HEIGHT * 4) as usize], // We are using a RGBA format pixel buffer
+            frame,
+            event_tx,
             system_state,
         }
     }
@@ -202,6 +207,7 @@ impl Ppu {
                         self.interrupts
                             .borrow_mut()
                             .request_interrupt(InterruptType::Vblank);
+                        self.event_tx.send(EmulatorEvent::CompletedFrame).unwrap();
 
                         LcdStatus::Vblank
                     } else {
@@ -265,10 +271,6 @@ impl Ppu {
         }
     }
 
-    pub fn framebuffer(&self) -> &Vec<u8> {
-        &self.framebuffer
-    }
-
     fn render_line(&mut self) {
         if !self.lcdc.lcd_enabled() {
             return;
@@ -291,6 +293,9 @@ impl Ppu {
 
         let screen_y = self.ly as usize;
         let row_first_index = screen_y * LCD_WIDTH as usize * 4;
+
+        let mut frame = self.frame.lock().unwrap();
+        let framebuffer = frame.as_mut_slice();
 
         for screen_x in 0..LCD_WIDTH as usize {
             // Displace the coordinate in the background map by the position of the viewport that is
@@ -317,7 +322,7 @@ impl Ppu {
             };
 
             let pixel_start_index = row_first_index + screen_x * 4;
-            let pixel = &mut self.framebuffer[pixel_start_index..(pixel_start_index + 4)];
+            let pixel = &mut framebuffer[pixel_start_index..(pixel_start_index + 4)];
 
             pixel.copy_from_slice(&pixel_color);
         }
@@ -433,7 +438,10 @@ impl Ppu {
         let row_first_index = screen_y * LCD_WIDTH as usize * 4 + screen_x_start * 4;
         let row_last_index = (screen_y + 1) * LCD_WIDTH as usize * 4 - 1;
 
-        for (window_index_x, pixel) in self.framebuffer[row_first_index..=row_last_index]
+        let mut frame = self.frame.lock().unwrap();
+        let framebuffer = frame.as_mut_slice();
+
+        for (window_index_x, pixel) in framebuffer[row_first_index..=row_last_index]
             .chunks_mut(4)
             .enumerate()
         {
@@ -472,6 +480,9 @@ impl Ppu {
     fn draw_sprites_on_ly(&mut self) {
         let sprites = self.get_sprites_on_ly();
         let sprite_height = self.lcdc.sprite_height() as u8;
+
+        let mut frame = self.frame.lock().unwrap();
+        let framebuffer = frame.as_mut_slice();
 
         // On the DMG model the sprite priority is determined by two conditions:
         // 1. The smaller the X-coordinate the higher the priority
@@ -539,7 +550,7 @@ impl Ppu {
                 + (screen_x_start + columns_visible) as usize * 4)
                 - 1;
 
-            for (i, pixel) in self.framebuffer[sprite_first_index..=sprite_last_index]
+            for (i, pixel) in framebuffer[sprite_first_index..=sprite_last_index]
                 .chunks_mut(4)
                 .enumerate()
             {
