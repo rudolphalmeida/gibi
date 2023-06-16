@@ -90,6 +90,13 @@ impl Gameboy {
         }
     }
 
+    pub fn send_debug_data(&self) {
+        let cpu_registers = self.cpu.regs;
+        self.event_tx
+            .send(EmulatorEvent::CpuRegisters(cpu_registers))
+            .unwrap();
+    }
+
     pub fn run_one_frame(&mut self) {
         let machine_cycles = self.system_state.borrow().total_cycles;
         let carry_over_cycles = self.system_state.borrow().carry_over_cycles;

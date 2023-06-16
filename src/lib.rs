@@ -2,11 +2,12 @@
 
 use std::sync::{Arc, Mutex};
 
+use cpu::Registers;
 use ppu::{LCD_HEIGHT, LCD_WIDTH};
 
 mod apu;
 mod cartridge;
-mod cpu;
+pub mod cpu;
 pub mod gameboy;
 mod interrupts;
 pub mod joypad;
@@ -25,6 +26,8 @@ pub type Frame = Arc<Mutex<Vec<u8>>>;
 pub enum EmulatorEvent {
     /// Raised on Vblank
     CompletedFrame,
+
+    CpuRegisters(Registers),
 }
 
 #[derive(Debug, Copy, Clone, PartialEq)]

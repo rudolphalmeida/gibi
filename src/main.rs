@@ -11,7 +11,8 @@ use eframe::{
     CreationContext,
 };
 use gibi::{
-    gameboy::Gameboy, joypad::JoypadKeys, EmulatorEvent, Frame, GAMEBOY_HEIGHT, GAMEBOY_WIDTH,
+    cpu::Registers, gameboy::Gameboy, joypad::JoypadKeys, EmulatorEvent, Frame, GAMEBOY_HEIGHT,
+    GAMEBOY_WIDTH,
 };
 
 const TEXTURE_OPTIONS: egui::TextureOptions = TextureOptions {
@@ -38,6 +39,7 @@ fn main() -> Result<(), eframe::Error> {
 #[derive(Debug)]
 enum EmulatorCommand {
     LoadRom(PathBuf),
+    SendDebugData,
 
     // Emulation control
     Start,
@@ -123,6 +125,10 @@ impl EmulationThread {
                         log::info!("Received request to quit. Terminate emulation thread");
                         break;
                     }
+                    EmulatorCommand::SendDebugData if self.gameboy.is_some() => {
+                        self.gameboy.as_ref().unwrap().send_debug_data()
+                    }
+                    EmulatorCommand::SendDebugData => {}
                 },
                 Err(e) => log::error!("{}", e),
             }
@@ -138,6 +144,9 @@ struct GameboyApp {
     emulation_thread: Option<JoinHandle<()>>,
     command_tx: mpsc::SyncSender<EmulatorCommand>,
     event_rc: mpsc::Receiver<EmulatorEvent>,
+
+    // Debugging Data
+    cpu_registers: Option<Registers>,
 }
 
 impl GameboyApp {
@@ -169,6 +178,7 @@ impl GameboyApp {
             frame,
             command_tx,
             event_rc,
+            cpu_registers: None,
         }
     }
 
@@ -234,7 +244,31 @@ impl eframe::App for GameboyApp {
                 egui::ScrollArea::vertical().show(ui, |ui| {
                     egui::CollapsingHeader::new("CPU")
                         .default_open(true)
-                        .show(ui, |_ui| {});
+                        .show(ui, |ui| {
+                            if let Some(cpu_registers) = self.cpu_registers {
+                                egui::Grid::new("cpu_regiters_grid")
+                                    .num_columns(2)
+                                    .spacing([40.0, 4.0])
+                                    .striped(true)
+                                    .show(ui, |ui| {
+                                        ui.label("AF");
+                                        ui.label(format!("{:#06X}", cpu_registers.get_af()));
+                                        ui.end_row();
+
+                                        ui.label("BC");
+                                        ui.label(format!("{:#06X}", cpu_registers.get_bc()));
+                                        ui.end_row();
+
+                                        ui.label("DE");
+                                        ui.label(format!("{:#06X}", cpu_registers.get_de()));
+                                        ui.end_row();
+
+                                        ui.label("HL");
+                                        ui.label(format!("{:#06X}", cpu_registers.get_hl()));
+                                        ui.end_row();
+                                    });
+                            }
+                        });
                     egui::CollapsingHeader::new("Memory")
                         .default_open(true)
                         .show(ui, |_ui| {});
@@ -281,6 +315,9 @@ impl eframe::App for GameboyApp {
         }
 
         self.command_tx.send(EmulatorCommand::RunFrame).unwrap();
+        self.command_tx
+            .send(EmulatorCommand::SendDebugData)
+            .unwrap();
 
         while let Ok(event) = self.event_rc.try_recv() {
             match event {
@@ -297,6 +334,9 @@ impl eframe::App for GameboyApp {
                             self.tex.size_vec2() * self.game_scale_factor,
                         ));
                     });
+                }
+                EmulatorEvent::CpuRegisters(cpu_registers) => {
+                    self.cpu_registers = Some(cpu_registers)
                 }
             }
         }

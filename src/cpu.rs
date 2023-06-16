@@ -12,7 +12,7 @@ pub(crate) struct Cpu {
     system_state: Rc<RefCell<SystemState>>,
 
     mmu: Rc<RefCell<Mmu>>,
-    regs: Registers,
+    pub(crate) regs: Registers,
 
     ime: bool,
     interrupts: Rc<RefCell<InterruptHandler>>,
@@ -895,7 +895,7 @@ enum FlagRegisterMask {
 }
 
 #[derive(Debug, Default, Clone, Copy)]
-pub(crate) struct FlagRegister {
+pub struct FlagRegister {
     zero: bool,
     negative: bool,
     half_carry: bool,
@@ -938,8 +938,8 @@ impl From<FlagRegister> for u8 {
     }
 }
 
-#[derive(Default)]
-pub(crate) struct Registers {
+#[derive(Default, Clone, Copy)]
+pub struct Registers {
     a: u8,
     f: FlagRegister,
     b: u8,
