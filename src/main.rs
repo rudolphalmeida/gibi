@@ -25,7 +25,7 @@ const HEIGHT: usize = GAMEBOY_HEIGHT as usize;
 fn main() -> Result<(), eframe::Error> {
     env_logger::init();
     let options = eframe::NativeOptions {
-        initial_window_size: Some(egui::vec2(1250.0, 760.0)),
+        initial_window_size: Some(egui::vec2(1240.0, 760.0)),
         vsync: true,
         ..Default::default()
     };
@@ -182,7 +182,7 @@ impl GameboyApp {
         }
     }
 
-    fn show_main_menu(&mut self, ui: &mut egui::Ui) {
+    fn show_main_menu(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         menu::bar(ui, |ui| {
             ui.menu_button("File", |ui| {
                 if ui.button("Open").clicked() {
@@ -210,36 +210,38 @@ impl GameboyApp {
                 }
             });
 
-            ui.menu_button("Scale", |ui| {
-                if ui.button("1x").clicked() {
-                    self.game_scale_factor = 1.0;
-                }
-                if ui.button("2x").clicked() {
-                    self.game_scale_factor = 2.0;
-                }
-                if ui.button("3x").clicked() {
-                    self.game_scale_factor = 3.0;
-                }
-                if ui.button("4x").clicked() {
-                    self.game_scale_factor = 4.0;
-                }
-                if ui.button("5x").clicked() {
-                    self.game_scale_factor = 5.0;
-                }
+            ui.menu_button("View", |ui| {
+                ui.menu_button("Scale", |ui| {
+                    if ui.button("1x").clicked() {
+                        self.game_scale_factor = 1.0;
+                    }
+                    if ui.button("2x").clicked() {
+                        self.game_scale_factor = 2.0;
+                    }
+                    if ui.button("3x").clicked() {
+                        self.game_scale_factor = 3.0;
+                    }
+                    if ui.button("4x").clicked() {
+                        self.game_scale_factor = 4.0;
+                    }
+                    if ui.button("5x").clicked() {
+                        self.game_scale_factor = 5.0;
+                    }
+                });
             });
         });
     }
 }
 
 impl eframe::App for GameboyApp {
-    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+    fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
         egui::TopBottomPanel::top("debug-panel").show(ctx, |ui| {
-            self.show_main_menu(ui);
+            self.show_main_menu(ui, frame);
         });
 
-        egui::SidePanel::left("left-debug-panel")
-            .min_width(200.0)
-            .resizable(true)
+        egui::SidePanel::left("debug-panel")
+            .min_width(400.0)
+            .resizable(false)
             .show(ctx, |ui| {
                 egui::ScrollArea::vertical().show(ui, |ui| {
                     egui::CollapsingHeader::new("CPU")
@@ -269,17 +271,6 @@ impl eframe::App for GameboyApp {
                                     });
                             }
                         });
-                    egui::CollapsingHeader::new("Memory")
-                        .default_open(true)
-                        .show(ui, |_ui| {});
-                });
-            });
-
-        egui::SidePanel::right("right-debug-panel")
-            .min_width(200.0)
-            .resizable(true)
-            .show(ctx, |ui| {
-                egui::ScrollArea::vertical().show(ui, |ui| {
                     egui::CollapsingHeader::new("PPU")
                         .default_open(true)
                         .show(ui, |_ui| {});
@@ -322,24 +313,24 @@ impl eframe::App for GameboyApp {
         while let Ok(event) = self.event_rc.try_recv() {
             match event {
                 EmulatorEvent::CompletedFrame => {
-                    let frame = self.frame.lock().unwrap();
-                    let framebuffer = frame.as_slice();
+                    let locked_frame = self.frame.lock().unwrap();
+                    let framebuffer = locked_frame.as_slice();
                     let image = ColorImage::from_rgba_unmultiplied([WIDTH, HEIGHT], framebuffer);
                     let delta = ImageDelta::full(image, TEXTURE_OPTIONS);
                     ctx.tex_manager().write().set(self.tex.id(), delta);
-
-                    egui::CentralPanel::default().show(ctx, |ui| {
-                        ui.add(egui::Image::new(
-                            &self.tex,
-                            self.tex.size_vec2() * self.game_scale_factor,
-                        ));
-                    });
                 }
                 EmulatorEvent::CpuRegisters(cpu_registers) => {
                     self.cpu_registers = Some(cpu_registers)
                 }
             }
         }
+
+        egui::CentralPanel::default().show(ctx, |ui| {
+            ui.add(egui::Image::new(
+                &self.tex,
+                self.tex.size_vec2() * self.game_scale_factor,
+            ));
+        });
 
         ctx.request_repaint();
     }
