@@ -268,6 +268,14 @@ impl eframe::App for GameboyApp {
                                         ui.label("HL");
                                         ui.label(format!("{:#06X}", cpu_registers.get_hl()));
                                         ui.end_row();
+
+                                        ui.label("SP");
+                                        ui.label(format!("{:#06X}", cpu_registers.sp));
+                                        ui.end_row();
+
+                                        ui.label("PC");
+                                        ui.label(format!("{:#06X}", cpu_registers.pc));
+                                        ui.end_row();
                                     });
                             }
                         });
