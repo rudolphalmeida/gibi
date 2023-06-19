@@ -136,6 +136,15 @@ impl EmulationThread {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum Panel {
+    Cpu,
+    Ppu,
+    Memory,
+    Nametables,
+    Cartridge,
+}
+
 struct GameboyApp {
     frame: Frame,
     tex: egui::TextureHandle,
@@ -146,6 +155,7 @@ struct GameboyApp {
     event_rc: mpsc::Receiver<EmulatorEvent>,
 
     // Debugging Data
+    open_panel: Panel,
     cpu_registers: Option<Registers>,
 }
 
@@ -179,6 +189,7 @@ impl GameboyApp {
             command_tx,
             event_rc,
             cpu_registers: None,
+            open_panel: Panel::Cpu,
         }
     }
 
@@ -235,7 +246,7 @@ impl GameboyApp {
 
 impl eframe::App for GameboyApp {
     fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
-        egui::TopBottomPanel::top("debug-panel").show(ctx, |ui| {
+        egui::TopBottomPanel::top("main-menu").show(ctx, |ui| {
             self.show_main_menu(ui, frame);
         });
 
@@ -244,11 +255,19 @@ impl eframe::App for GameboyApp {
             .resizable(false)
             .show(ctx, |ui| {
                 egui::ScrollArea::vertical().show(ui, |ui| {
-                    egui::CollapsingHeader::new("CPU")
-                        .default_open(true)
-                        .show(ui, |ui| {
+                    ui.horizontal(|ui| {
+                        ui.selectable_value(&mut self.open_panel, Panel::Cpu, "CPU");
+                        ui.selectable_value(&mut self.open_panel, Panel::Ppu, "PPU");
+                        ui.selectable_value(&mut self.open_panel, Panel::Cartridge, "Cartridge");
+                        ui.selectable_value(&mut self.open_panel, Panel::Memory, "Memory");
+                        ui.selectable_value(&mut self.open_panel, Panel::Nametables, "Nametables");
+                    });
+                    ui.separator();
+
+                    match self.open_panel {
+                        Panel::Cpu => {
                             if let Some(cpu_registers) = self.cpu_registers {
-                                egui::Grid::new("cpu_regiters_grid")
+                                egui::Grid::new("cpu_registers_grid")
                                     .num_columns(2)
                                     .spacing([40.0, 4.0])
                                     .striped(true)
@@ -278,13 +297,12 @@ impl eframe::App for GameboyApp {
                                         ui.end_row();
                                     });
                             }
-                        });
-                    egui::CollapsingHeader::new("PPU")
-                        .default_open(true)
-                        .show(ui, |_ui| {});
-                    egui::CollapsingHeader::new("Nametables")
-                        .default_open(true)
-                        .show(ui, |_ui| {});
+                        }
+                        Panel::Ppu => {}
+                        Panel::Memory => {}
+                        Panel::Nametables => {}
+                        Panel::Cartridge => {}
+                    }
                 });
             });
 

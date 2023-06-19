@@ -278,13 +278,13 @@ impl Ppu {
 
         self.render_background_line();
 
-        // if self.lcdc.window_enabled() {
-        //     self.render_window_line();
-        // }
+        if self.lcdc.window_enabled() {
+            self.render_window_line();
+        }
 
-        // if self.lcdc.sprites_enabled() {
-        //     self.draw_sprites_on_ly();
-        // }
+        if self.lcdc.sprites_enabled() {
+            self.draw_sprites_on_ly();
+        }
     }
 
     fn render_background_line(&mut self) {

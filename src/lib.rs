@@ -8,6 +8,7 @@ use ppu::{LCD_HEIGHT, LCD_WIDTH};
 mod apu;
 mod cartridge;
 pub mod cpu;
+pub mod debug;
 pub mod gameboy;
 mod interrupts;
 pub mod joypad;
