@@ -619,26 +619,26 @@ impl Ppu {
     }
 
     fn bcp_read(&self) -> u8 {
-        self.color_bg_palettes[(self.bcps & 0x1F) as usize]
+        self.color_bg_palettes[(self.bcps & 0x3F) as usize]
     }
 
     fn bcp_write(&mut self, data: u8) {
-        self.color_bg_palettes[(self.bcps & 0x1F) as usize] = data;
+        self.color_bg_palettes[(self.bcps & 0x3F) as usize] = data;
         if self.bcps & 0x80 != 0 {
             self.bcps += 1;
-            self.bcps &= 0x9F;
+            self.bcps &= 0xBF;
         }
     }
 
     fn ocp_read(&self) -> u8 {
-        self.color_obj_palettes[(self.ocps & 0x1F) as usize]
+        self.color_obj_palettes[(self.ocps & 0x3F) as usize]
     }
 
     fn ocp_write(&mut self, data: u8) {
-        self.color_obj_palettes[(self.ocps & 0x1F) as usize] = data;
+        self.color_obj_palettes[(self.ocps & 0x3F) as usize] = data;
         if self.ocps & 0x80 != 0 {
             self.ocps += 1;
-            self.ocps &= 0x9F;
+            self.ocps &= 0xBF;
         }
     }
 }

@@ -1,5 +1,3 @@
-
-
 enum GameboyColorShade {
     White = 0,
     LightGray = 1,
