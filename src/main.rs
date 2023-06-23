@@ -167,7 +167,7 @@ impl GameboyApp {
             TEXTURE_OPTIONS,
         );
 
-        let frame = Arc::new(Mutex::new(vec![0x00; (WIDTH * HEIGHT * 4) as usize]));
+        let frame = Arc::new(Mutex::new(vec![0x00; WIDTH * HEIGHT * 4]));
 
         let (command_tx, command_rc) = mpsc::sync_channel(0);
         let (event_tx, event_rc) = mpsc::channel();

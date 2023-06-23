@@ -4,7 +4,7 @@ use std::sync::mpsc::Sender;
 
 use crate::interrupts::{InterruptHandler, InterruptType};
 use crate::memory::Memory;
-use crate::palettes::{Palette, RGBA_WHITE};
+use crate::palettes::Palette;
 use crate::{EmulatorEvent, Frame, HardwareSupport, SystemState};
 
 pub(crate) const VRAM_START: u16 = 0x8000;
@@ -112,6 +112,9 @@ pub(crate) struct Ppu {
     interrupts: Rc<RefCell<InterruptHandler>>,
 
     frame: Frame,
+    // Index in palette of each color that was used for background
+    bg_color_indices: Vec<u8>,
+
     event_tx: Sender<EmulatorEvent>,
 
     system_state: Rc<RefCell<SystemState>>,
@@ -150,6 +153,7 @@ impl Ppu {
             color_obj_palettes: [0xFF; COLOR_PALETTE_SIZE],
             interrupts,
             frame,
+            bg_color_indices: vec![0x00; (LCD_WIDTH * LCD_HEIGHT) as usize],
             event_tx,
             system_state,
         }
@@ -276,6 +280,8 @@ impl Ppu {
             return;
         }
 
+        // TODO: In DMG mode BG and Window can be disabled
+
         self.render_background_line();
 
         if self.lcdc.window_enabled() {
@@ -315,11 +321,13 @@ impl Ppu {
             let hardware_support = self.system_state.borrow().hardware_support;
             let bootrom_mapped = self.system_state.borrow().bootrom_mapped;
             // If the bootrom is mapped, run in CGB mode regardless of cart
-            let pixel_color = if hardware_support == HardwareSupport::DmgCompat && !bootrom_mapped {
-                self.render_dmg_compat_bg(bg_map_x, bg_map_y, tile_id, tileset_address)
-            } else {
-                self.render_cgb_bg(bg_map_x, bg_map_y, tile_id, tile_attr, tileset_address)
-            };
+            let (pixel_color, color_id) =
+                if hardware_support == HardwareSupport::DmgCompat && !bootrom_mapped {
+                    self.render_dmg_compat_bg(bg_map_x, bg_map_y, tile_id, tileset_address)
+                } else {
+                    self.render_cgb_bg(bg_map_x, bg_map_y, tile_id, tile_attr, tileset_address)
+                };
+            self.bg_color_indices[screen_y * LCD_WIDTH as usize + screen_x] = color_id;
 
             let pixel_start_index = row_first_index + screen_x * 4;
             let pixel = &mut framebuffer[pixel_start_index..(pixel_start_index + 4)];
@@ -334,7 +342,7 @@ impl Ppu {
         bg_map_y: usize,
         tile_id: u8,
         tileset_address: usize,
-    ) -> [u8; 4] {
+    ) -> ([u8; 4], u8) {
         let tile_pixel_x = bg_map_x % TILE_WIDTH_PX;
         let tile_pixel_y = bg_map_y % TILE_HEIGHT_PX;
 
@@ -356,7 +364,7 @@ impl Ppu {
         let index = 7 - tile_pixel_x as u8;
         let color_id =
             ((u8::from(pixel_2 & (1 << index) != 0)) << 1) | u8::from(pixel_1 & (1 << index) != 0);
-        palette.actual_color_from_index(color_id)
+        (palette.actual_color_from_index(color_id), color_id)
     }
 
     fn render_cgb_bg(
@@ -366,7 +374,7 @@ impl Ppu {
         tile_id: u8,
         tile_attr: u8,
         tileset_address: usize,
-    ) -> [u8; 4] {
+    ) -> ([u8; 4], u8) {
         let tile_data_vram_bank = ((tile_attr & 8) >> 3) as usize;
 
         // Vertical flip
@@ -404,7 +412,7 @@ impl Ppu {
         let index = 7 - tile_pixel_x as u8;
         let color_id =
             ((u8::from(pixel_2 & (1 << index) != 0)) << 1) | u8::from(pixel_1 & (1 << index) != 0);
-        palette.actual_color_from_index(color_id)
+        (palette.actual_color_from_index(color_id), color_id)
     }
 
     fn render_window_line(&mut self) {
@@ -483,6 +491,7 @@ impl Ppu {
 
         let mut frame = self.frame.lock().unwrap();
         let framebuffer = frame.as_mut_slice();
+        let screen_y = self.ly as usize;
 
         // On the DMG model the sprite priority is determined by two conditions:
         // 1. The smaller the X-coordinate the higher the priority
@@ -550,6 +559,9 @@ impl Ppu {
                 + (screen_x_start + columns_visible) as usize * 4)
                 - 1;
 
+            let hardware_support = self.system_state.borrow().hardware_support;
+            let bootrom_mapped = self.system_state.borrow().bootrom_mapped;
+
             for (i, pixel) in framebuffer[sprite_first_index..=sprite_last_index]
                 .chunks_mut(4)
                 .enumerate()
@@ -562,15 +574,26 @@ impl Ppu {
 
                 let color_id = (u8::from(pixel_2 & (1 << pixel_index) != 0) << 1)
                     | u8::from(pixel_1 & (1 << pixel_index) != 0);
+
                 // Color ID 00 is transparent for sprites
-                if color_id != 0b00 {
+                if color_id == 0b00 {
+                    continue;
+                }
+
+                let screen_x = sprite.x as usize + i;
+                let bg_color_id = self.bg_color_indices[screen_y * LCD_WIDTH as usize + screen_x];
+
+                if hardware_support == HardwareSupport::DmgCompat && !bootrom_mapped {
                     if sprite.bg_window_over_sprite() {
-                        if pixel == RGBA_WHITE {
+                        if bg_color_id == 0 {
                             pixel.copy_from_slice(&palette.actual_color_from_index(color_id));
                         }
                     } else {
                         pixel.copy_from_slice(&palette.actual_color_from_index(color_id));
                     };
+                } else {
+                    // TODO: Proper BG/OBJ priority calculation
+                    pixel.copy_from_slice(&palette.actual_color_from_index(color_id));
                 }
             }
         }
@@ -709,6 +732,7 @@ fn vram_index(address: u16, bank: usize) -> usize {
 }
 
 // OAM Sprites
+#[derive(Debug, Clone, Copy)]
 struct Sprite {
     y: u8,
     x: u8,
