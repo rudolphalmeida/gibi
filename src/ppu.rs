@@ -81,6 +81,12 @@ const VBLANK_DOTS: u64 = VBLANK_SCANLINES as u64 * SCANLINE_DOTS;
 
 const COLOR_PALETTE_SIZE: usize = 64;
 
+#[derive(Debug, Clone, Copy, Default)]
+struct RenderedBackgroundPixel {
+    bg_color_index: u8,
+    bg_priority: bool, // Derived from Bit 7 in BG Attribute Map for the pixel
+}
+
 pub(crate) struct Ppu {
     vram: [u8; VRAM_BANK_SIZE * 2],
     vram_bank: usize,
@@ -113,7 +119,7 @@ pub(crate) struct Ppu {
 
     frame: Frame,
     // Index in palette of each color that was used for background
-    bg_color_indices: Vec<u8>,
+    bg_color_indices: Vec<RenderedBackgroundPixel>,
 
     event_tx: Sender<EmulatorEvent>,
 
@@ -153,7 +159,7 @@ impl Ppu {
             color_obj_palettes: [0xFF; COLOR_PALETTE_SIZE],
             interrupts,
             frame,
-            bg_color_indices: vec![0x00; (LCD_WIDTH * LCD_HEIGHT) as usize],
+            bg_color_indices: vec![Default::default(); (LCD_WIDTH * LCD_HEIGHT) as usize],
             event_tx,
             system_state,
         }
@@ -318,16 +324,17 @@ impl Ppu {
             let tile_id = self.vram[vram_index(tile_index_address as u16, 0)];
             let tile_attr = self.vram[vram_index(tile_index_address as u16, 1)];
 
-            let hardware_support = self.system_state.borrow().hardware_support;
-            let bootrom_mapped = self.system_state.borrow().bootrom_mapped;
             // If the bootrom is mapped, run in CGB mode regardless of cart
-            let (pixel_color, color_id) =
-                if hardware_support == HardwareSupport::DmgCompat && !bootrom_mapped {
-                    self.render_dmg_compat_bg(bg_map_x, bg_map_y, tile_id, tileset_address)
-                } else {
-                    self.render_cgb_bg(bg_map_x, bg_map_y, tile_id, tile_attr, tileset_address)
+            let (pixel_color, color_id) = if self.system_state.borrow().dmg_compat_mode() {
+                self.render_dmg_compat_bg(bg_map_x, bg_map_y, tile_id, tileset_address)
+            } else {
+                self.render_cgb_bg(bg_map_x, bg_map_y, tile_id, tile_attr, tileset_address)
+            };
+            self.bg_color_indices[screen_y * LCD_WIDTH as usize + screen_x] =
+                RenderedBackgroundPixel {
+                    bg_color_index: color_id,
+                    bg_priority: (tile_attr & 0x80) == 0x80,
                 };
-            self.bg_color_indices[screen_y * LCD_WIDTH as usize + screen_x] = color_id;
 
             let pixel_start_index = row_first_index + screen_x * 4;
             let pixel = &mut framebuffer[pixel_start_index..(pixel_start_index + 4)];
@@ -559,9 +566,6 @@ impl Ppu {
                 + (screen_x_start + columns_visible) as usize * 4)
                 - 1;
 
-            let hardware_support = self.system_state.borrow().hardware_support;
-            let bootrom_mapped = self.system_state.borrow().bootrom_mapped;
-
             for (i, pixel) in framebuffer[sprite_first_index..=sprite_last_index]
                 .chunks_mut(4)
                 .enumerate()
@@ -581,19 +585,27 @@ impl Ppu {
                 }
 
                 let screen_x = sprite.x as usize + i;
-                let bg_color_id = self.bg_color_indices[screen_y * LCD_WIDTH as usize + screen_x];
+                let RenderedBackgroundPixel {
+                    bg_color_index,
+                    bg_priority,
+                } = self.bg_color_indices[screen_y * LCD_WIDTH as usize + screen_x];
 
-                if hardware_support == HardwareSupport::DmgCompat && !bootrom_mapped {
+                if self.system_state.borrow().dmg_compat_mode() {
                     if sprite.bg_window_over_sprite() {
-                        if bg_color_id == 0 {
+                        if bg_color_index == 0 {
                             pixel.copy_from_slice(&palette.actual_color_from_index(color_id));
                         }
                     } else {
                         pixel.copy_from_slice(&palette.actual_color_from_index(color_id));
                     };
                 } else {
-                    // TODO: Proper BG/OBJ priority calculation
-                    pixel.copy_from_slice(&palette.actual_color_from_index(color_id));
+                    if bg_color_index == 0 // If the BG color index is 0, the OBJ always has priority
+                        || !self.lcdc.bg_and_window_enabled() // if LCDC bit 0 is clear, the OBJ will always have priority
+                        || (!bg_priority && !sprite.bg_window_over_sprite())
+                    // if both the BG Attributes and the OAM Attributes have bit 7 clear, the OBJ will have priority
+                    {
+                        pixel.copy_from_slice(&palette.actual_color_from_index(color_id));
+                    }
                 }
             }
         }
@@ -610,10 +622,11 @@ impl Ppu {
             sprites.push(sprite);
         }
 
-        // Sorting by the X coordinate will take care of the first condition for DMG where the
+        // Sorting by the X coordinate will take care of the first condition for DMG mode where the
         // sprite with the lower X coordinate has higher priority and is drawn over
-        // TODO: This should be skipped when running in CGB mode
-        // sprites.sort_by(|sprite1, sprite2| sprite1.x.cmp(&sprite2.x));
+        if self.system_state.borrow().dmg_compat_mode() {
+            sprites.sort_by(|sprite1, sprite2| sprite1.x.cmp(&sprite2.x));
+        }
 
         sprites
     }
@@ -627,8 +640,7 @@ impl Ppu {
         // scanline
         for (i, sprite) in self.oam.chunks(4).enumerate() {
             let screen_y_start = sprite[0].saturating_sub(16);
-            // TODO: Fix overflow on screen_y_end calculation
-            let screen_y_end = (sprite[0] + sprite_height).saturating_sub(16);
+            let screen_y_end = sprite[0].wrapping_add(sprite_height).saturating_sub(16);
 
             // We don't check if the sprite is hidden below the frame because this function should
             // not be called for those values of LY at all

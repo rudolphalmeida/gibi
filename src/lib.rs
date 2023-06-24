@@ -104,6 +104,10 @@ impl SystemState {
     pub(crate) fn speed_multiplier(&self) -> u64 {
         (((self.key1 & 0x80) >> 7) + 1).into()
     }
+
+    pub(crate) fn dmg_compat_mode(&self) -> bool {
+        self.hardware_support == HardwareSupport::DmgCompat && !self.bootrom_mapped
+    }
 }
 
 /// Calculate the minimum number of bits required to store a value
