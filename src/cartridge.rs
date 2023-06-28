@@ -9,7 +9,6 @@ const RAM_BANK_SIZE: u32 = 1024 * 8;
 
 pub const BOOT_ROM_START: u16 = 0x0000;
 pub const BOOT_ROM_END: u16 = 0x08FF;
-pub const DMG_BOOT_ROM: &[u8; 0x100] = include_bytes!("../roms/dmg_boot.bin");
 pub const CGB_BOOT_ROM: &[u8; 0x900] = include_bytes!("../roms/cgb_boot.bin");
 
 pub const CART_ROM_START: u16 = 0x0000;
