@@ -4,7 +4,7 @@ use std::{cell::RefCell, rc::Rc};
 use std::{fs, io};
 
 use crate::apu::Apu;
-use crate::cartridge::init_mbc_from_rom;
+use crate::cartridge::init_cart_from_rom;
 use crate::interrupts::InterruptHandler;
 use crate::joypad::{Joypad, JoypadKeys};
 use crate::{cpu::Cpu, mmu::Mmu, ppu::Ppu};
@@ -29,7 +29,7 @@ impl Gameboy {
         ram: Option<Vec<u8>>,
         event_tx: Sender<EmulatorEvent>,
     ) -> Self {
-        let cart = init_mbc_from_rom(rom, ram);
+        let cart = init_cart_from_rom(rom, ram);
         let hardware_support = cart.hardware_supported();
 
         match hardware_support {

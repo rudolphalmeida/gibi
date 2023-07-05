@@ -22,6 +22,7 @@ const TEXTURE_OPTIONS: egui::TextureOptions = TextureOptions {
 const WIDTH: usize = GAMEBOY_WIDTH as usize;
 const HEIGHT: usize = GAMEBOY_HEIGHT as usize;
 
+#[cfg(not(target_arch = "wasm32"))]
 fn main() -> Result<(), eframe::Error> {
     env_logger::init();
     let options = eframe::NativeOptions {
@@ -34,6 +35,25 @@ fn main() -> Result<(), eframe::Error> {
         options,
         Box::new(|cc| Box::<GameboyApp>::new(GameboyApp::new(cc))),
     )
+}
+
+#[cfg(target_arch = "wasm32")]
+fn main() {
+    // Redirect `log` message to `console.log` and friends:
+    eframe::WebLogger::init(log::LevelFilter::Debug).ok();
+
+    let web_options = eframe::WebOptions::default();
+
+    wasm_bindgen_futures::spawn_local(async {
+        eframe::WebRunner::new()
+            .start(
+                "ui_canvas", // hardcode it
+                web_options,
+                Box::new(|cc| Box::<GameboyApp>::new(GameboyApp::new(cc))),
+            )
+            .await
+            .expect("failed to start eframe");
+    });
 }
 
 #[derive(Debug)]
@@ -55,7 +75,7 @@ enum EmulatorCommand {
     Exit,
 }
 
-struct EmulationThread {
+struct EmulationContext {
     loaded_rom_file: Option<PathBuf>,
     gameboy: Option<Gameboy>,
     running: bool,
@@ -66,7 +86,7 @@ struct EmulationThread {
     event_tx: mpsc::Sender<EmulatorEvent>,
 }
 
-impl EmulationThread {
+impl EmulationContext {
     fn new(
         frame: Frame,
         command_rc: mpsc::Receiver<EmulatorCommand>,
@@ -82,55 +102,76 @@ impl EmulationThread {
         }
     }
 
+    fn handle_message(&mut self, m: EmulatorCommand) -> bool {
+        match m {
+            EmulatorCommand::LoadRom(path) => {
+                // TODO: Save if a game is already running
+                let rom = std::fs::read(&path).unwrap();
+                self.loaded_rom_file = Some(path);
+                self.gameboy = Some(Gameboy::new(
+                    Arc::clone(&self.frame),
+                    rom,
+                    None,
+                    self.event_tx.clone(),
+                ));
+            }
+            EmulatorCommand::Start if self.gameboy.is_some() => self.running = true,
+            EmulatorCommand::Start => {}
+            EmulatorCommand::RunFrame if self.running => {
+                let gb_ctx = self.gameboy.as_mut().unwrap();
+                gb_ctx.run_one_frame();
+                self.event_tx.send(EmulatorEvent::CompletedFrame).unwrap();
+            }
+            EmulatorCommand::RunFrame => {}
+            EmulatorCommand::Pause => self.running = false,
+            EmulatorCommand::Stop => {
+                // TODO: Save if a game is already running
+                self.running = false;
+                self.gameboy = None;
+                self.loaded_rom_file = None;
+            }
+            EmulatorCommand::KeyPressed(key) if self.running => {
+                self.gameboy.as_mut().unwrap().keydown(key)
+            }
+            EmulatorCommand::KeyPressed(_) => {}
+            EmulatorCommand::KeyReleased(key) if self.running => {
+                self.gameboy.as_mut().unwrap().keyup(key)
+            }
+            EmulatorCommand::KeyReleased(_) => {}
+            EmulatorCommand::SendDebugData if self.gameboy.is_some() => {
+                self.gameboy.as_ref().unwrap().send_debug_data()
+            }
+            EmulatorCommand::SendDebugData => {}
+            #[cfg(not(target_arch = "wasm32"))]
+            EmulatorCommand::Exit => {
+                // TODO: Save if a game is already running
+                log::info!("Received request to quit. Terminate emulation thread");
+                return true;
+            }
+            #[cfg(target_arch = "wasm32")]
+            EmulatorCommand::Exit => {}
+        }
+
+        false
+    }
+
     fn run(&mut self) {
+        #[cfg(not(target_arch = "wasm32"))]
         loop {
             match self.command_rc.recv() {
-                Ok(m) => match m {
-                    EmulatorCommand::LoadRom(path) => {
-                        // TODO: Save if a game is already running
-                        let rom = std::fs::read(&path).unwrap();
-                        self.loaded_rom_file = Some(path);
-                        self.gameboy = Some(Gameboy::new(
-                            Arc::clone(&self.frame),
-                            rom,
-                            None,
-                            self.event_tx.clone(),
-                        ));
-                    }
-                    EmulatorCommand::Start if self.gameboy.is_some() => self.running = true,
-                    EmulatorCommand::Start => {}
-                    EmulatorCommand::RunFrame if self.running => {
-                        let gb_ctx = self.gameboy.as_mut().unwrap();
-                        gb_ctx.run_one_frame();
-                        self.event_tx.send(EmulatorEvent::CompletedFrame).unwrap();
-                    }
-                    EmulatorCommand::RunFrame => {}
-                    EmulatorCommand::Pause => self.running = false,
-                    EmulatorCommand::Stop => {
-                        // TODO: Save if a game is already running
-                        self.running = false;
-                        self.gameboy = None;
-                        self.loaded_rom_file = None;
-                    }
-                    EmulatorCommand::KeyPressed(key) if self.running => {
-                        self.gameboy.as_mut().unwrap().keydown(key)
-                    }
-                    EmulatorCommand::KeyPressed(_) => {}
-                    EmulatorCommand::KeyReleased(key) if self.running => {
-                        self.gameboy.as_mut().unwrap().keyup(key)
-                    }
-                    EmulatorCommand::KeyReleased(_) => {}
-                    EmulatorCommand::Exit => {
-                        // TODO: Save if a game is already running
-                        log::info!("Received request to quit. Terminate emulation thread");
+                Ok(m) => {
+                    if self.handle_message(m) {
                         break;
                     }
-                    EmulatorCommand::SendDebugData if self.gameboy.is_some() => {
-                        self.gameboy.as_ref().unwrap().send_debug_data()
-                    }
-                    EmulatorCommand::SendDebugData => {}
-                },
+                }
                 Err(e) => log::error!("{}", e),
+            }
+        }
+
+        #[cfg(target_arch = "wasm32")]
+        while let Ok(m) = self.command_rc.try_recv() {
+            if self.handle_message(m) {
+                break;
             }
         }
     }
@@ -150,8 +191,12 @@ struct GameboyApp {
     tex: egui::TextureHandle,
     game_scale_factor: f32,
 
+    // `Some(...)` when running native; None in `wasm`
     emulation_thread: Option<JoinHandle<()>>,
-    command_tx: mpsc::SyncSender<EmulatorCommand>,
+    // `Some(...)` when running `wasm`; None in native
+    emulation_ctx: Option<EmulationContext>,
+
+    command_tx: mpsc::Sender<EmulatorCommand>,
     event_rc: mpsc::Receiver<EmulatorEvent>,
 
     // Debugging Data
@@ -169,22 +214,36 @@ impl GameboyApp {
 
         let frame = Arc::new(Mutex::new(vec![0x00; WIDTH * HEIGHT * 4]));
 
-        let (command_tx, command_rc) = mpsc::sync_channel(0);
+        let (command_tx, command_rc) = mpsc::channel();
         let (event_tx, event_rc) = mpsc::channel();
-        let emulation_thread = {
+
+        #[cfg(not(target_arch = "wasm32"))]
+        let emulation_thread = Some({
             let frame = Arc::clone(&frame);
             std::thread::Builder::new()
                 .name("emulation-thread".to_owned())
                 .spawn(move || {
-                    EmulationThread::new(Arc::clone(&frame), command_rc, event_tx).run();
+                    EmulationContext::new(Arc::clone(&frame), command_rc, event_tx).run();
                 })
                 .expect("Failed to spawn emulation thread")
-        };
+        });
+        #[cfg(target_arch = "wasm32")]
+        let emulation_thread = None;
+
+        #[cfg(not(target_arch = "wasm32"))]
+        let emulation_ctx: Option<EmulationContext> = None;
+        #[cfg(target_arch = "wasm32")]
+        let emulation_ctx = Some(EmulationContext::new(
+            Arc::clone(&frame),
+            command_rc,
+            event_tx,
+        ));
 
         Self {
             tex,
             game_scale_factor: 5.0,
-            emulation_thread: Some(emulation_thread),
+            emulation_thread,
+            emulation_ctx,
             frame,
             command_tx,
             event_rc,
@@ -197,6 +256,7 @@ impl GameboyApp {
         menu::bar(ui, |ui| {
             ui.menu_button("File", |ui| {
                 if ui.button("Open").clicked() {
+                    #[cfg(not(target_arch = "wasm32"))]
                     if let Some(path) = rfd::FileDialog::new().pick_file() {
                         self.command_tx
                             .send(EmulatorCommand::LoadRom(path))
@@ -204,6 +264,8 @@ impl GameboyApp {
                     }
                 }
                 if ui.button("Open Recent").clicked() {}
+
+                #[cfg(not(target_arch = "wasm32"))]
                 if ui.button("Exit").clicked() {
                     self.command_tx.send(EmulatorCommand::Stop).unwrap();
                 }
@@ -336,6 +398,11 @@ impl eframe::App for GameboyApp {
             .send(EmulatorCommand::SendDebugData)
             .unwrap();
 
+        #[cfg(target_arch = "wasm32")]
+        {
+            self.emulation_ctx.as_mut().unwrap().run();
+        }
+
         while let Ok(event) = self.event_rc.try_recv() {
             match event {
                 EmulatorEvent::CompletedFrame => {
@@ -361,6 +428,7 @@ impl eframe::App for GameboyApp {
         ctx.request_repaint();
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
     fn on_close_event(&mut self) -> bool {
         self.command_tx.send(EmulatorCommand::Exit).unwrap();
         self.emulation_thread.take().map(JoinHandle::join);

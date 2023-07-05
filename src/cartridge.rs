@@ -32,7 +32,7 @@ pub(crate) trait Cartridge: Memory + Mbc + Savable {
     }
 }
 
-pub(crate) fn init_mbc_from_rom(rom: Vec<u8>, ram: Option<Vec<u8>>) -> Box<dyn Cartridge> {
+pub(crate) fn init_cart_from_rom(rom: Vec<u8>, ram: Option<Vec<u8>>) -> Box<dyn Cartridge> {
     match rom[CARTRIDGE_TYPE_ADDRESS as usize] {
         0x00 => Box::new(NoMbc::new(rom)),
         x @ (0x01 | 0x02 | 0x03) => Box::new(Mbc1::new(rom, ram, x == 0x03)),
@@ -82,7 +82,7 @@ pub trait Mbc {
     }
 }
 
-// Memory Banking Controllers (MBCS)
+// Memory Banking Controllers (MBCs)
 // ROM Only MBC ------------------------------------------------------------------------------------
 struct NoMbc {
     rom: Vec<u8>,
@@ -139,7 +139,6 @@ impl Cartridge for NoMbc {}
 // End-ROM Only MBC---------------------------------------------------------------------------------
 
 // MBC1 --------------------------------------------------------------------------------------------
-
 struct Mbc1 {
     rom: Vec<u8>,
     ram: Option<Vec<u8>>,
@@ -323,7 +322,6 @@ impl Cartridge for Mbc1 {}
 // END-MBC1 ----------------------------------------------------------------------------------------
 
 // MBC5 --------------------------------------------------------------------------------------------
-
 struct Mbc5 {
     rom: Vec<u8>,
     ram: Option<Vec<u8>>,
