@@ -533,11 +533,8 @@ impl Ppu {
             let tile_line_data_start_address =
                 sprite_tile_address + (sprite_line_offset as u16 * 2);
 
-            let obj_palette_number = if let ObjectPalette::ColorPalette(value) = sprite.palette() {
-                value as usize
-            } else {
-                0x0
-            };
+            let obj_palette_number =
+                sprite.palette(self.system_state.borrow().dmg_compat_mode()) as usize;
             let palette_spec =
                 &self.color_obj_palettes[(obj_palette_number * 8)..((obj_palette_number + 1) * 8)];
             let palette = Palette::new_color(palette_spec);
@@ -749,12 +746,6 @@ struct Sprite {
     attrs: u8,
 }
 
-enum ObjectPalette {
-    Obp0,
-    Obp1,
-    ColorPalette(u8),
-}
-
 impl Sprite {
     pub fn new(y: u8, x: u8, tile_index: u8, attrs: u8) -> Self {
         Self {
@@ -781,14 +772,12 @@ impl Sprite {
         ((self.attrs & 0x8) >> 3) as usize
     }
 
-    pub fn palette(&self) -> ObjectPalette {
-        // Only run this if running in DMG-mode
-        // if self.attrs & 0x10 != 0 {
-        //     ObjectPalette::Obp1
-        // } else {
-        //     ObjectPalette::Obp0
-        // }
-        ObjectPalette::ColorPalette(self.attrs & 0b111)
+    pub fn palette(&self, dmg_mode: bool) -> u8 {
+        if dmg_mode {
+            (self.attrs & 0x10) >> 4
+        } else {
+            self.attrs & 0b111
+        }
     }
 }
 
