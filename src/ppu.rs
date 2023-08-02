@@ -168,7 +168,6 @@ impl Ppu {
     pub fn tick(&mut self, speed_divider: u64) {
         // Tick 4 times if single speed mode and 2 times if double speed mode
         // The LCD controller speed does not change with the speed mode
-        // TODO: Do this only for CGB
         let cycles_to_tick = DOTS_PER_TICK / speed_divider;
         for _ in 0..cycles_to_tick {
             self.dots_in_line += 1;
@@ -286,14 +285,38 @@ impl Ppu {
             return;
         }
 
-        // TODO: In DMG mode BG and Window can be disabled
+        if self.system_state.borrow().dmg_compat_mode() {
+            if self.lcdc.bg_and_window_enabled() {
+                self.render_background_line();
+            } else {
+                // If BG/Window is disabled both BG and Window become white
+                // Reference: https://gbdev.io/pandocs/LCDC.html#non-cgb-mode-dmg-sgb-and-cgb-in-compatibility-mode-bg-and-window-display
+                let palette_spec = &self.color_bg_palettes[0..8];
+                let palette = Palette::new_color(palette_spec);
+                let row_first_index = self.ly as usize * LCD_WIDTH as usize * 4;
+                let row_last_index = (self.ly + 1) as usize * LCD_WIDTH as usize * 4 - 1;
 
-        self.render_background_line();
+                let mut frame = self.frame.lock().unwrap();
+                let framebuffer = frame.as_mut_slice();
 
-        if self.lcdc.window_enabled() {
-            self.render_window_line();
+                for pixel in framebuffer[row_first_index..=row_last_index].chunks_mut(4) {
+                    pixel.copy_from_slice(&palette.color0());
+                }
+            }
+
+            // Both BG/Window and Window should be enabled to draw window pixels
+            if self.lcdc.bg_and_window_enabled() && self.lcdc.window_enabled() {
+                self.render_window_line();
+            }
+        } else {
+            self.render_background_line();
+
+            if self.lcdc.window_enabled() {
+                self.render_window_line();
+            }
         }
 
+        // Sprites are drawn the same regardless of DMG-Compat or CGB mode
         if self.lcdc.sprites_enabled() {
             self.draw_sprites_on_ly();
         }

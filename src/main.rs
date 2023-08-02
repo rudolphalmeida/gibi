@@ -176,7 +176,9 @@ impl GameboyApp {
             std::thread::Builder::new()
                 .name("emulation-thread".to_owned())
                 .spawn(move || {
+                    log::info!("Spawned emulation thread");
                     EmulationThread::new(Arc::clone(&frame), command_rc, event_tx).run();
+                    log::info!("Exiting emulation thread");
                 })
                 .expect("Failed to spawn emulation thread")
         };
