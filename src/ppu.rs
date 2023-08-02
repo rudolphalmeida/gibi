@@ -176,23 +176,13 @@ impl Ppu {
                 LcdStatus::OamSearch if self.dots_in_line == OAM_SEARCH_DOTS => {
                     let old_stat = self.stat;
                     self.stat.set_mode(LcdStatus::Rendering);
-
-                    if !old_stat.is_stat_irq_asserted() && self.stat.is_stat_irq_asserted() {
-                        self.interrupts
-                            .borrow_mut()
-                            .request_interrupt(InterruptType::LcdStat);
-                    }
+                    self.assert_lcd_stat(old_stat);
                 }
                 LcdStatus::Rendering if self.dots_in_line == RENDERING_DOTS => {
                     self.render_line();
                     let old_stat = self.stat;
                     self.stat.set_mode(LcdStatus::Hblank);
-
-                    if !old_stat.is_stat_irq_asserted() && self.stat.is_stat_irq_asserted() {
-                        self.interrupts
-                            .borrow_mut()
-                            .request_interrupt(InterruptType::LcdStat);
-                    }
+                    self.assert_lcd_stat(old_stat);
                 }
                 LcdStatus::Hblank if self.dots_in_line == SCANLINE_DOTS => {
                     self.ly += 1;
@@ -203,6 +193,7 @@ impl Ppu {
                         // Going into VBlank
                         self.window_internal_counter = None;
 
+                        // TODO: Check the second Model1Vblank condition
                         if !old_stat.is_stat_irq_asserted()
                             && self
                                 .stat
@@ -225,58 +216,43 @@ impl Ppu {
                     };
 
                     self.stat.set_mode(next_mode);
-                    if !old_stat.is_stat_irq_asserted() && self.stat.is_stat_irq_asserted() {
-                        self.interrupts
-                            .borrow_mut()
-                            .request_interrupt(InterruptType::LcdStat);
-                    }
+                    self.assert_lcd_stat(old_stat);
 
                     // The LY-LYC compare interrupt is actually delayed by 1 CPU cycle
                     let old_stat = self.stat;
                     self.stat.set_ly_lyc_state(self.ly == self.lyc);
-                    if !old_stat.is_stat_irq_asserted() && self.stat.is_stat_irq_asserted() {
-                        self.interrupts
-                            .borrow_mut()
-                            .request_interrupt(InterruptType::LcdStat);
-                    }
+                    self.assert_lcd_stat(old_stat);
                 }
                 LcdStatus::Vblank if self.ly == 153 && self.dots_in_line == 8 => {
                     self.ly = 0;
-
                     let old_stat = self.stat;
                     self.stat.set_ly_lyc_state(self.ly == self.lyc);
-                    if !old_stat.is_stat_irq_asserted() && self.stat.is_stat_irq_asserted() {
-                        self.interrupts
-                            .borrow_mut()
-                            .request_interrupt(InterruptType::LcdStat);
-                    }
+                    self.assert_lcd_stat(old_stat);
                 }
                 LcdStatus::Vblank if self.ly == 0 && self.dots_in_line == SCANLINE_DOTS => {
+                    self.dots_in_line = 0;
                     let old_stat = self.stat;
                     self.stat.set_mode(LcdStatus::OamSearch);
-                    self.dots_in_line = 0;
-
                     self.stat.set_ly_lyc_state(self.ly == self.lyc);
-                    if !old_stat.is_stat_irq_asserted() && self.stat.is_stat_irq_asserted() {
-                        self.interrupts
-                            .borrow_mut()
-                            .request_interrupt(InterruptType::LcdStat);
-                    }
+                    self.assert_lcd_stat(old_stat);
                 }
                 LcdStatus::Vblank if self.dots_in_line == SCANLINE_DOTS => {
                     self.ly += 1;
                     self.dots_in_line = 0;
-
                     let old_stat = self.stat;
                     self.stat.set_ly_lyc_state(self.ly == self.lyc);
-                    if !old_stat.is_stat_irq_asserted() && self.stat.is_stat_irq_asserted() {
-                        self.interrupts
-                            .borrow_mut()
-                            .request_interrupt(InterruptType::LcdStat);
-                    }
+                    self.assert_lcd_stat(old_stat);
                 }
                 _ => {}
             }
+        }
+    }
+
+    fn assert_lcd_stat(&mut self, old_stat: LcdStat) {
+        if !old_stat.is_stat_irq_asserted() && self.stat.is_stat_irq_asserted() {
+            self.interrupts
+                .borrow_mut()
+                .request_interrupt(InterruptType::LcdStat);
         }
     }
 
@@ -621,14 +597,12 @@ impl Ppu {
                     } else {
                         pixel.copy_from_slice(&palette.actual_color_from_index(color_id));
                     };
-                } else {
-                    if bg_color_index == 0 // If the BG color index is 0, the OBJ always has priority
-                        || !self.lcdc.bg_and_window_enabled() // if LCDC bit 0 is clear, the OBJ will always have priority
-                        || (!bg_priority && !sprite.bg_window_over_sprite())
-                    // if both the BG Attributes and the OAM Attributes have bit 7 clear, the OBJ will have priority
-                    {
-                        pixel.copy_from_slice(&palette.actual_color_from_index(color_id));
-                    }
+                } else if bg_color_index == 0 // If the BG color index is 0, the OBJ always has priority
+                    || !self.lcdc.bg_and_window_enabled() // if LCDC bit 0 is clear, the OBJ will always have priority
+                    || (!bg_priority && !sprite.bg_window_over_sprite())
+                // if both the BG Attributes and the OAM Attributes have bit 7 clear, the OBJ will have priority
+                {
+                    pixel.copy_from_slice(&palette.actual_color_from_index(color_id));
                 }
             }
         }
