@@ -422,8 +422,6 @@ impl Ppu {
     }
 
     fn render_window_line(&mut self) {
-        let palette = Palette::new_greyscale(self.bgp);
-
         let tileset_address = self.lcdc.bg_and_window_tiledata_area() as usize;
         let tilemap_address = self.lcdc.window_tilemap_area() as usize;
 
@@ -470,6 +468,12 @@ impl Ppu {
             let tile_index = tile_y * TILES_PER_LINE + tile_x;
             let tile_index_address = tilemap_address + tile_index;
             let tile_id = self.vram[vram_index(tile_index_address as u16, 0)];
+            let tile_attr = self.vram[vram_index(tile_index_address as u16, 1)];
+
+            let window_palette_number = tile_attr as usize & 0b111;
+            let palette_spec = &self.color_bg_palettes
+                [(window_palette_number * 8)..((window_palette_number + 1) * 8)];
+            let palette = Palette::new_color(palette_spec);
 
             let tiledata_mem_offset = match self.lcdc.bg_and_window_tiledata_area() {
                 TiledataAddressingMode::Signed => {
