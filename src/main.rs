@@ -6,7 +6,7 @@ use std::{
 };
 
 use eframe::{
-    egui::{self, menu, Key, TextureOptions},
+    egui::{self, menu, Key, RichText, TextureOptions},
     epaint::{Color32, ColorImage, ImageDelta},
     CreationContext,
 };
@@ -270,31 +270,46 @@ impl eframe::App for GameboyApp {
                         Panel::Cpu => {
                             if let Some(cpu_registers) = self.cpu_registers {
                                 egui::Grid::new("cpu_registers_grid")
-                                    .num_columns(2)
-                                    .spacing([40.0, 4.0])
+                                    .num_columns(4)
+                                    .spacing([0.0, 20.0])
+                                    .min_col_width(100.0)
                                     .striped(true)
                                     .show(ui, |ui| {
-                                        ui.label("AF");
-                                        ui.label(format!("{:#06X}", cpu_registers.get_af()));
+                                        let af = cpu_registers.get_af();
+                                        let [a, f] = af.to_be_bytes();
+                                        ui.label(RichText::new("A").strong());
+                                        ui.label(format!("{:#04X}", a));
+                                        ui.label(RichText::new("F").strong());
+                                        ui.label(format!("{:#04X}", f));
                                         ui.end_row();
 
-                                        ui.label("BC");
-                                        ui.label(format!("{:#06X}", cpu_registers.get_bc()));
+                                        let bc = cpu_registers.get_bc();
+                                        let [b, c] = bc.to_be_bytes();
+                                        ui.label(RichText::new("B").strong());
+                                        ui.label(format!("{:#04X}", b));
+                                        ui.label(RichText::new("C").strong());
+                                        ui.label(format!("{:#04X}", c));
                                         ui.end_row();
 
-                                        ui.label("DE");
-                                        ui.label(format!("{:#06X}", cpu_registers.get_de()));
+                                        let de = cpu_registers.get_de();
+                                        let [d, e] = de.to_be_bytes();
+                                        ui.label(RichText::new("D").strong());
+                                        ui.label(format!("{:#04X}", d));
+                                        ui.label(RichText::new("E").strong());
+                                        ui.label(format!("{:#04X}", e));
                                         ui.end_row();
 
-                                        ui.label("HL");
-                                        ui.label(format!("{:#06X}", cpu_registers.get_hl()));
+                                        let hl = cpu_registers.get_hl();
+                                        let [h, l] = hl.to_be_bytes();
+                                        ui.label(RichText::new("H").strong());
+                                        ui.label(format!("{:#04X}", h));
+                                        ui.label(RichText::new("L").strong());
+                                        ui.label(format!("{:#04X}", l));
                                         ui.end_row();
 
-                                        ui.label("SP");
+                                        ui.label(RichText::new("SP").strong());
                                         ui.label(format!("{:#06X}", cpu_registers.sp));
-                                        ui.end_row();
-
-                                        ui.label("PC");
+                                        ui.label(RichText::new("PC").strong());
                                         ui.label(format!("{:#06X}", cpu_registers.pc));
                                         ui.end_row();
                                     });
@@ -305,6 +320,8 @@ impl eframe::App for GameboyApp {
                         Panel::Nametables => {}
                         Panel::Cartridge => {}
                     }
+
+                    ui.separator();
                 });
             });
 
@@ -354,10 +371,12 @@ impl eframe::App for GameboyApp {
         }
 
         egui::CentralPanel::default().show(ctx, |ui| {
-            ui.add(egui::Image::new(
-                &self.tex,
-                self.tex.size_vec2() * self.game_scale_factor,
-            ));
+            ui.vertical_centered(|ui| {
+                ui.add(egui::Image::new(
+                    &self.tex,
+                    self.tex.size_vec2() * self.game_scale_factor,
+                ));
+            })
         });
 
         ctx.request_repaint();
