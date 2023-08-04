@@ -896,10 +896,10 @@ enum FlagRegisterMask {
 
 #[derive(Debug, Default, Clone, Copy)]
 pub struct FlagRegister {
-    zero: bool,
-    negative: bool,
-    half_carry: bool,
-    carry: bool,
+    pub zero: bool,
+    pub negative: bool,
+    pub half_carry: bool,
+    pub carry: bool,
 }
 
 impl From<u8> for FlagRegister {
@@ -941,7 +941,7 @@ impl From<FlagRegister> for u8 {
 #[derive(Default, Clone, Copy)]
 pub struct Registers {
     a: u8,
-    f: FlagRegister,
+    pub f: FlagRegister,
     b: u8,
     c: u8,
     d: u8,

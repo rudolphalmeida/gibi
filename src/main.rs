@@ -15,7 +15,7 @@ use gibi::{
     GAMEBOY_WIDTH,
 };
 
-const TEXTURE_OPTIONS: egui::TextureOptions = TextureOptions {
+const TEXTURE_OPTIONS: TextureOptions = TextureOptions {
     magnification: egui::TextureFilter::Nearest,
     minification: egui::TextureFilter::Nearest,
 };
@@ -244,6 +244,87 @@ impl GameboyApp {
             });
         });
     }
+
+    fn show_cpu_registers(&mut self, ui: &mut egui::Ui, cpu_registers: Registers) {
+        egui::Grid::new("cpu_registers_grid")
+            .num_columns(4)
+            .spacing([0.0, 20.0])
+            .min_col_width(100.0)
+            .striped(true)
+            .show(ui, |ui| {
+                let af = cpu_registers.get_af();
+                let [a, f] = af.to_be_bytes();
+                ui.label(RichText::new("A").strong());
+                ui.label(format!("{:#04X}", a));
+                ui.label(RichText::new("F").strong());
+                ui.label(format!("{:#04X}", f));
+                ui.end_row();
+
+                let bc = cpu_registers.get_bc();
+                let [b, c] = bc.to_be_bytes();
+                ui.label(RichText::new("B").strong());
+                ui.label(format!("{:#04X}", b));
+                ui.label(RichText::new("C").strong());
+                ui.label(format!("{:#04X}", c));
+                ui.end_row();
+
+                let de = cpu_registers.get_de();
+                let [d, e] = de.to_be_bytes();
+                ui.label(RichText::new("D").strong());
+                ui.label(format!("{:#04X}", d));
+                ui.label(RichText::new("E").strong());
+                ui.label(format!("{:#04X}", e));
+                ui.end_row();
+
+                let hl = cpu_registers.get_hl();
+                let [h, l] = hl.to_be_bytes();
+                ui.label(RichText::new("H").strong());
+                ui.label(format!("{:#04X}", h));
+                ui.label(RichText::new("L").strong());
+                ui.label(format!("{:#04X}", l));
+                ui.end_row();
+
+                ui.label(RichText::new("SP").strong());
+                ui.label(format!("{:#06X}", cpu_registers.sp));
+                ui.label(RichText::new("PC").strong());
+                ui.label(format!("{:#06X}", cpu_registers.pc));
+                ui.end_row();
+            });
+
+        ui.separator();
+
+        ui.columns(5, |columns| {
+            let f = cpu_registers.f;
+            columns[0].label("Flags:");
+            let zero_label = if f.zero {
+                RichText::new("Z").strong()
+            } else {
+                RichText::new("Z").weak()
+            };
+            columns[1].label(zero_label);
+
+            let sub_label = if f.negative {
+                RichText::new("N").strong()
+            } else {
+                RichText::new("N").weak()
+            };
+            columns[2].label(sub_label);
+
+            let half_carry_label = if f.half_carry {
+                RichText::new("H").strong()
+            } else {
+                RichText::new("H").weak()
+            };
+            columns[3].label(half_carry_label);
+
+            let carry_label = if f.carry {
+                RichText::new("C").strong()
+            } else {
+                RichText::new("C").weak()
+            };
+            columns[4].label(carry_label);
+        });
+    }
 }
 
 impl eframe::App for GameboyApp {
@@ -269,50 +350,7 @@ impl eframe::App for GameboyApp {
                     match self.open_panel {
                         Panel::Cpu => {
                             if let Some(cpu_registers) = self.cpu_registers {
-                                egui::Grid::new("cpu_registers_grid")
-                                    .num_columns(4)
-                                    .spacing([0.0, 20.0])
-                                    .min_col_width(100.0)
-                                    .striped(true)
-                                    .show(ui, |ui| {
-                                        let af = cpu_registers.get_af();
-                                        let [a, f] = af.to_be_bytes();
-                                        ui.label(RichText::new("A").strong());
-                                        ui.label(format!("{:#04X}", a));
-                                        ui.label(RichText::new("F").strong());
-                                        ui.label(format!("{:#04X}", f));
-                                        ui.end_row();
-
-                                        let bc = cpu_registers.get_bc();
-                                        let [b, c] = bc.to_be_bytes();
-                                        ui.label(RichText::new("B").strong());
-                                        ui.label(format!("{:#04X}", b));
-                                        ui.label(RichText::new("C").strong());
-                                        ui.label(format!("{:#04X}", c));
-                                        ui.end_row();
-
-                                        let de = cpu_registers.get_de();
-                                        let [d, e] = de.to_be_bytes();
-                                        ui.label(RichText::new("D").strong());
-                                        ui.label(format!("{:#04X}", d));
-                                        ui.label(RichText::new("E").strong());
-                                        ui.label(format!("{:#04X}", e));
-                                        ui.end_row();
-
-                                        let hl = cpu_registers.get_hl();
-                                        let [h, l] = hl.to_be_bytes();
-                                        ui.label(RichText::new("H").strong());
-                                        ui.label(format!("{:#04X}", h));
-                                        ui.label(RichText::new("L").strong());
-                                        ui.label(format!("{:#04X}", l));
-                                        ui.end_row();
-
-                                        ui.label(RichText::new("SP").strong());
-                                        ui.label(format!("{:#06X}", cpu_registers.sp));
-                                        ui.label(RichText::new("PC").strong());
-                                        ui.label(format!("{:#06X}", cpu_registers.pc));
-                                        ui.end_row();
-                                    });
+                                self.show_cpu_registers(ui, cpu_registers);
                             }
                         }
                         Panel::Ppu => {}
