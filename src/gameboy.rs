@@ -14,7 +14,6 @@ const CYCLES_PER_FRAME: u64 = 17556;
 
 pub struct Gameboy {
     mmu: Rc<RefCell<Mmu>>,
-    ppu: Rc<RefCell<Ppu>>,
     joypad: Rc<RefCell<Joypad>>,
     cpu: Cpu,
 
@@ -53,22 +52,14 @@ impl Gameboy {
         }));
 
         let interrupts = Rc::new(RefCell::new(InterruptHandler::default()));
-
-        let ppu = Rc::new(RefCell::new(Ppu::new(
-            frame,
-            Rc::clone(&interrupts),
-            Rc::clone(&system_state),
-            event_tx.clone(),
-        )));
-        let apu = Rc::new(RefCell::new(Apu::new()));
         let joypad = Rc::new(RefCell::new(Joypad::new(Rc::clone(&interrupts))));
         let mmu = Rc::new(RefCell::new(Mmu::new(
             cart,
             Rc::clone(&system_state),
-            Rc::clone(&ppu),
-            apu,
             Rc::clone(&joypad),
             Rc::clone(&interrupts),
+            frame,
+            event_tx.clone(),
         )));
         let cpu = Cpu::new(Rc::clone(&mmu), interrupts, Rc::clone(&system_state));
 
@@ -85,7 +76,6 @@ impl Gameboy {
             mmu,
             cpu,
             joypad,
-            ppu,
             event_tx,
         }
     }

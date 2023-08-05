@@ -1,5 +1,6 @@
 use std::cell::RefCell;
 use std::rc::Rc;
+use std::sync::mpsc::Sender;
 
 use crate::apu::{Apu, SOUND_END, SOUND_START, WAVE_END, WAVE_START};
 use crate::cartridge::CGB_BOOT_ROM;
@@ -10,7 +11,7 @@ use crate::ppu::{
 };
 use crate::serial::{Serial, SERIAL_END, SERIAL_START};
 use crate::timer::{Timer, TIMER_END, TIMER_START};
-use crate::{HardwareSupport, SystemState};
+use crate::{EmulatorEvent, Frame, HardwareSupport, SystemState};
 
 use crate::{
     cartridge::{
@@ -71,8 +72,12 @@ struct OamDma {
 /// correct component to which the address is mapped.
 pub(crate) struct Mmu {
     pub(crate) cart: Box<dyn Cartridge>,
-    ppu: Rc<RefCell<Ppu>>,
-    apu: Rc<RefCell<Apu>>,
+    ppu: RefCell<Ppu>,
+    apu: RefCell<Apu>,
+    joypad: Rc<RefCell<Joypad>>,
+    timer: RefCell<Timer>,
+    serial: Serial,
+    interrupts: Rc<RefCell<InterruptHandler>>,
 
     system_state: Rc<RefCell<SystemState>>,
 
@@ -82,10 +87,6 @@ pub(crate) struct Mmu {
     wram_bank: usize,
 
     hram: [u8; HRAM_SIZE],
-    joypad: Rc<RefCell<Joypad>>,
-    serial: Serial,
-    timer: RefCell<Timer>,
-    interrupts: Rc<RefCell<InterruptHandler>>,
 
     // DMAs
     oam_dma: RefCell<Option<OamDma>>,
@@ -95,10 +96,10 @@ impl Mmu {
     pub fn new(
         cart: Box<dyn Cartridge>,
         system_state: Rc<RefCell<SystemState>>,
-        ppu: Rc<RefCell<Ppu>>,
-        apu: Rc<RefCell<Apu>>,
         joypad: Rc<RefCell<Joypad>>,
         interrupts: Rc<RefCell<InterruptHandler>>,
+        frame: Frame,
+        event_tx: Sender<EmulatorEvent>,
     ) -> Self {
         let wram = [0x00; WRAM_BANK_SIZE * 8]; // 32KB
         let wram_bank = 0x1;
@@ -108,6 +109,15 @@ impl Mmu {
         let timer = RefCell::new(Timer::new(Rc::clone(&interrupts), Rc::clone(&system_state)));
 
         let oam_dma = RefCell::new(None);
+
+        let ppu = RefCell::new(Ppu::new(
+            frame,
+            Rc::clone(&interrupts),
+            Rc::clone(&system_state),
+            event_tx.clone(),
+        ));
+
+        let apu = RefCell::new(Apu::new());
 
         log::debug!("Initialized MMU for CGB");
 
