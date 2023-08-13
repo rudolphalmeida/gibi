@@ -12,7 +12,9 @@ impl Apu {
         Apu {}
     }
 
-    pub fn tick(&mut self) {}
+    pub fn tick(&mut self, _speed_multiplier: u64) {
+        // The APU is not affected by CGB double speed mode
+    }
 }
 
 impl Memory for Apu {

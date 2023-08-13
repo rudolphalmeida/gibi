@@ -240,6 +240,15 @@ impl GameboyApp {
                     if ui.button("5x").clicked() {
                         self.game_scale_factor = 5.0;
                     }
+                    if ui.button("6x").clicked() {
+                        self.game_scale_factor = 6.0;
+                    }
+                    if ui.button("7x").clicked() {
+                        self.game_scale_factor = 7.0;
+                    }
+                    if ui.button("8x").clicked() {
+                        self.game_scale_factor = 8.0;
+                    }
                 });
             });
         });

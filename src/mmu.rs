@@ -114,7 +114,7 @@ impl Mmu {
             frame,
             Rc::clone(&interrupts),
             Rc::clone(&system_state),
-            event_tx.clone(),
+            event_tx,
         ));
 
         let apu = RefCell::new(Apu::new());
@@ -147,7 +147,7 @@ impl Mmu {
         self.timer.borrow_mut().tick();
         self.joypad.borrow_mut().tick();
         self.ppu.borrow_mut().tick(speed_multiplier);
-        self.apu.borrow_mut().tick();
+        self.apu.borrow_mut().tick(speed_multiplier);
     }
 
     fn tick_oam_dma(&self) {
