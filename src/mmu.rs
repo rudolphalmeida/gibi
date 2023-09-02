@@ -22,6 +22,7 @@ use crate::{
     memory::Memory,
     ppu::{Ppu, OAM_END, OAM_START, VRAM_END, VRAM_START},
 };
+use crate::memory::MemoryBus;
 
 const CART_HEADER_START: u16 = 0x100;
 const CART_HEADER_END: u16 = 0x1FF;
@@ -137,18 +138,7 @@ impl Mmu {
         }
     }
 
-    pub fn tick(&self) {
-        self.system_state.borrow_mut().total_cycles += 1;
 
-        self.tick_oam_dma();
-
-        let speed_multiplier = self.system_state.borrow().speed_multiplier();
-
-        self.timer.borrow_mut().tick();
-        self.joypad.borrow_mut().tick();
-        self.ppu.borrow_mut().tick(speed_multiplier);
-        self.apu.borrow_mut().tick(speed_multiplier);
-    }
 
     fn tick_oam_dma(&self) {
         // Perform DMA
@@ -174,9 +164,111 @@ impl Mmu {
         self.oam_dma.borrow().is_some()
     }
 
+
+
+    fn wram_banked_read(&self, address: u16) -> u8 {
+        // FIXME: Index out of range errors
+        let index = WRAM_BANK_SIZE
+            * if self.wram_bank == 0x00 {
+                1
+            } else {
+                self.wram_bank
+            }
+            + (address - WRAM_BANKED_START) as usize;
+
+        self.wram[index]
+    }
+
+    fn wram_banked_write(&mut self, address: u16, data: u8) {
+        // FIXME: Index out of range errors
+        let index = WRAM_BANK_SIZE
+            * if self.wram_bank == 0x00 {
+                1
+            } else {
+                self.wram_bank
+            }
+            + (address - WRAM_BANKED_START) as usize;
+
+        self.wram[index] = data
+    }
+
+
+
+    fn on_hdma5_write(&mut self, data: u8) {
+        if (data & 0x80) == 0 {
+            // GDMA
+            if self.system_state.borrow().hdma_state.is_hdma_active() {
+                // If HDMA is active, cancel it keeping the remaining length
+                self.system_state.borrow_mut().hdma_state.hdma_stat |= 0x80;
+            } else {
+                let len = ((data as usize & 0x7F) + 1) * 0x10;
+                let mut src_addr = self.system_state.borrow().hdma_state.source_addr & 0xFFF0;
+                let mut dest_addr =
+                    (self.system_state.borrow().hdma_state.dest_addr & 0x1FF0) | 0x8000;
+
+                for _ in 0..len {
+                    let value = self.raw_read(src_addr);
+                    self.raw_write(dest_addr, value);
+                    src_addr += 1;
+                    dest_addr += 1;
+                }
+
+                self.system_state.borrow_mut().hdma_state.hdma_stat = 0xFF;
+            }
+        } else {
+            // HDMA
+            log::info!("TODO: Setup HDMA");
+        }
+    }
+
+    fn disable_bootrom(&mut self, data: u8) {
+        self.system_state.borrow_mut().bootrom_mapped = data == 0x00;
+        if !self.system_state.borrow().bootrom_mapped {
+            log::info!("Boot ROM disabled");
+        }
+    }
+
+    pub fn save_ram(&self) -> Option<&Vec<u8>> {
+        self.cart.save_ram()
+    }
+}
+
+impl Memory for Mmu {
+    /// Read and Write for Mmu. The `Memory` trait is not implemented for the Mmu
+    /// because `read` here needs to take a mutable reference to `self` due to
+    /// using `tick` inside it. We want the other components to keep up with the
+    /// CPU during each memory access
+    fn read(&self, address: u16) -> u8 {
+        self.tick();
+        if self.oam_dma_in_progress() {
+            // Only HRAM is accessible during OAM DMA
+            if (HRAM_START..=HRAM_END).contains(&address) {
+                self.hram[address as usize - 0xFF80]
+            } else {
+                0xFF
+            }
+        } else {
+            self.raw_read(address)
+        }
+    }
+
+    fn write(&mut self, address: u16, data: u8) {
+        self.tick();
+        if self.oam_dma_in_progress() {
+            // Only HRAM is accessible during OAM DMA
+            if (HRAM_START..=HRAM_END).contains(&address) {
+                self.hram[address as usize - 0xFF80] = data;
+            }
+        } else {
+            self.raw_write(address, data);
+        };
+    }
+}
+
+impl MemoryBus for Mmu {
     /// Raw Read: Read the contents of a memory location without ticking all the
     /// components
-    pub fn raw_read(&self, address: u16) -> u8 {
+    fn raw_read(&self, address: u16) -> u8 {
         match address {
             CART_HEADER_START..=CART_HEADER_END => return self.cart.read(address),
             BOOT_ROM_START..=BOOT_ROM_END if self.system_state.borrow().bootrom_mapped => {
@@ -213,32 +305,6 @@ impl Mmu {
             _ => log::error!("Unknown address to Mmu::read {:#06X}", address),
         }
         0xFF
-    }
-
-    fn wram_banked_read(&self, address: u16) -> u8 {
-        // FIXME: Index out of range errors
-        let index = WRAM_BANK_SIZE
-            * if self.wram_bank == 0x00 {
-                1
-            } else {
-                self.wram_bank
-            }
-            + (address - WRAM_BANKED_START) as usize;
-
-        self.wram[index]
-    }
-
-    fn wram_banked_write(&mut self, address: u16, data: u8) {
-        // FIXME: Index out of range errors
-        let index = WRAM_BANK_SIZE
-            * if self.wram_bank == 0x00 {
-                1
-            } else {
-                self.wram_bank
-            }
-            + (address - WRAM_BANKED_START) as usize;
-
-        self.wram[index] = data
     }
 
     fn raw_write(&mut self, address: u16, data: u8) {
@@ -310,74 +376,16 @@ impl Mmu {
         }
     }
 
-    fn on_hdma5_write(&mut self, data: u8) {
-        if (data & 0x80) == 0 {
-            // GDMA
-            if self.system_state.borrow().hdma_state.is_hdma_active() {
-                // If HDMA is active, cancel it keeping the remaining length
-                self.system_state.borrow_mut().hdma_state.hdma_stat |= 0x80;
-            } else {
-                let len = ((data as usize & 0x7F) + 1) * 0x10;
-                let mut src_addr = self.system_state.borrow().hdma_state.source_addr & 0xFFF0;
-                let mut dest_addr =
-                    (self.system_state.borrow().hdma_state.dest_addr & 0x1FF0) | 0x8000;
+    fn tick(&self) {
+        self.system_state.borrow_mut().total_cycles += 1;
 
-                for _ in 0..len {
-                    let value = self.raw_read(src_addr);
-                    self.raw_write(dest_addr, value);
-                    src_addr += 1;
-                    dest_addr += 1;
-                }
+        self.tick_oam_dma();
 
-                self.system_state.borrow_mut().hdma_state.hdma_stat = 0xFF;
-            }
-        } else {
-            // HDMA
-            log::info!("TODO: Setup HDMA");
-        }
-    }
+        let speed_multiplier = self.system_state.borrow().speed_multiplier();
 
-    fn disable_bootrom(&mut self, data: u8) {
-        self.system_state.borrow_mut().bootrom_mapped = data == 0x00;
-        if !self.system_state.borrow().bootrom_mapped {
-            log::info!("Boot ROM disabled");
-        }
-    }
-
-    pub fn save_ram(&self) -> Option<&Vec<u8>> {
-        self.cart.save_ram()
-    }
-}
-
-impl Memory for Mmu {
-    /// Read and Write for Mmu. The `Memory` trait is not implemented for the Mmu
-    /// because `read` here needs to take a mutable reference to `self` due to
-    /// using `tick` inside it. We want the other components to keep up with the
-    /// CPU during each memory access
-    fn read(&self, address: u16) -> u8 {
-        self.tick();
-        if self.oam_dma_in_progress() {
-            // Only HRAM is accessible during OAM DMA
-            if (HRAM_START..=HRAM_END).contains(&address) {
-                self.hram[address as usize - 0xFF80]
-            } else {
-                0xFF
-            }
-        } else {
-            self.raw_read(address)
-        }
-    }
-
-    fn write(&mut self, address: u16, data: u8) {
-        // TODO: This order might influence how TIMA updates
-        self.tick();
-        if self.oam_dma_in_progress() {
-            // Only HRAM is accessible during OAM DMA
-            if (HRAM_START..=HRAM_END).contains(&address) {
-                self.hram[address as usize - 0xFF80] = data;
-            }
-        } else {
-            self.raw_write(address, data);
-        };
+        self.timer.borrow_mut().tick();
+        self.joypad.borrow_mut().tick();
+        self.ppu.borrow_mut().tick(speed_multiplier);
+        self.apu.borrow_mut().tick(speed_multiplier);
     }
 }

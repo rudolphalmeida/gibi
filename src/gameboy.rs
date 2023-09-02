@@ -14,7 +14,7 @@ const CYCLES_PER_FRAME: u64 = 17556;
 pub struct Gameboy {
     mmu: Rc<RefCell<Mmu>>,
     joypad: Rc<RefCell<Joypad>>,
-    cpu: Cpu,
+    cpu: Cpu<Mmu>,
 
     system_state: Rc<RefCell<SystemState>>,
     event_tx: Sender<EmulatorEvent>,

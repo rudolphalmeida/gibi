@@ -5,13 +5,13 @@ use paste::paste;
 use crate::interrupts::{
     InterruptHandler, InterruptType, INTERRUPT_ENABLE_ADDRESS, INTERRUPT_FLAG_ADDRESS,
 };
-use crate::{memory::Memory, mmu::Mmu};
 use crate::{ExecutionState, SystemState};
+use crate::memory::MemoryBus;
 
-pub(crate) struct Cpu {
+pub(crate) struct Cpu<BusType: MemoryBus> {
     system_state: Rc<RefCell<SystemState>>,
 
-    mmu: Rc<RefCell<Mmu>>,
+    mmu: Rc<RefCell<BusType>>,
     pub(crate) regs: Registers,
 
     ime: bool,
@@ -20,9 +20,9 @@ pub(crate) struct Cpu {
     previous_execution_state: Option<ExecutionState>,
 }
 
-impl Cpu {
+impl<BusType> Cpu<BusType> where BusType: MemoryBus {
     pub fn new(
-        mmu: Rc<RefCell<Mmu>>,
+        mmu: Rc<RefCell<BusType>>,
         interrupts: Rc<RefCell<InterruptHandler>>,
         system_state: Rc<RefCell<SystemState>>,
     ) -> Self {
@@ -994,7 +994,7 @@ enum WordRegister<'a> {
 }
 
 impl<'a> WordRegister<'a> {
-    pub fn for_group1(bits: u8, cpu: &'a mut Cpu) -> Self {
+    pub fn for_group1<BusType: MemoryBus>(bits: u8, cpu: &'a mut Cpu<BusType>) -> Self {
         match bits {
             0 => WordRegister::Pair {
                 upper: &mut cpu.regs.b,
@@ -1013,7 +1013,7 @@ impl<'a> WordRegister<'a> {
         }
     }
 
-    pub fn for_group2(bits: u8, cpu: &'a mut Cpu) -> Self {
+    pub fn for_group2<BusType: MemoryBus>(bits: u8, cpu: &'a mut Cpu<BusType>) -> Self {
         match bits {
             0 => WordRegister::Pair {
                 upper: &mut cpu.regs.b,
@@ -1031,7 +1031,7 @@ impl<'a> WordRegister<'a> {
         }
     }
 
-    pub fn for_group3(bits: u8, cpu: &'a mut Cpu) -> Self {
+    pub fn for_group3<BusType: MemoryBus>(bits: u8, cpu: &'a mut Cpu<BusType>) -> Self {
         match bits {
             0 => WordRegister::Pair {
                 upper: &mut cpu.regs.b,
@@ -1112,13 +1112,13 @@ impl<'a> WordRegister<'a> {
     }
 }
 
-enum ByteRegister<'a> {
+enum ByteRegister<'a, BusType: MemoryBus> {
     Register(&'a mut u8),
-    MemoryReference(u16, Rc<RefCell<Mmu>>),
+    MemoryReference(u16, Rc<RefCell<BusType>>),
 }
 
-impl<'a> ByteRegister<'a> {
-    pub fn for_r8(bits: u8, cpu: &'a mut Cpu) -> Self {
+impl<'a, BusType> ByteRegister<'a, BusType> where BusType: MemoryBus {
+    pub fn for_r8(bits: u8, cpu: &'a mut Cpu<BusType>) -> Self {
         match bits {
             0 => ByteRegister::Register(&mut cpu.regs.b),
             1 => ByteRegister::Register(&mut cpu.regs.c),
