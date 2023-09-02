@@ -3,11 +3,10 @@ use std::sync::mpsc::Sender;
 use std::{cell::RefCell, rc::Rc};
 use std::{fs, io};
 
-use crate::apu::Apu;
 use crate::cartridge::init_mbc_from_rom;
 use crate::interrupts::InterruptHandler;
 use crate::joypad::{Joypad, JoypadKeys};
-use crate::{cpu::Cpu, mmu::Mmu, ppu::Ppu};
+use crate::{cpu::Cpu, mmu::Mmu};
 use crate::{EmulatorEvent, ExecutionState, Frame, HardwareSupport, HdmaState, SystemState};
 
 const CYCLES_PER_FRAME: u64 = 17556;

@@ -195,11 +195,13 @@ impl GameboyApp {
         }
     }
 
-    fn show_main_menu(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+    fn show_main_menu(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
         menu::bar(ui, |ui| {
             ui.menu_button("File", |ui| {
                 if ui.button("Open").clicked() {
                     if let Some(path) = rfd::FileDialog::new().pick_file() {
+                        let rom_name = path.file_name().unwrap();
+                        frame.set_window_title(rom_name.to_str().unwrap());
                         self.command_tx
                             .send(EmulatorCommand::LoadRom(path))
                             .unwrap();
