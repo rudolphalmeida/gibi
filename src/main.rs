@@ -15,6 +15,7 @@ use gibi::{
     GAMEBOY_WIDTH,
 };
 
+// Nearest neighbor filtering for the nice pixelated look
 const TEXTURE_OPTIONS: TextureOptions = TextureOptions {
     magnification: egui::TextureFilter::Nearest,
     minification: egui::TextureFilter::Nearest,
@@ -26,6 +27,9 @@ fn main() -> Result<(), eframe::Error> {
     env_logger::init();
     let options = eframe::NativeOptions {
         initial_window_size: Some(egui::vec2(1240.0, 760.0)),
+        // TODO: This makes the emulator run at the frame rate of the monitor on
+        //       which the window is. Change this to `false` and make the emulation
+        //       sync to audio or use a timer
         vsync: true,
         ..Default::default()
     };
