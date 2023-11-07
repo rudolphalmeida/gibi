@@ -76,6 +76,80 @@ impl GameboyApp {
         }
     }
 
+    fn handle_input(&mut self, ctx: &egui::Context) {
+        let joypad_keymap: HashMap<Key, JoypadKeys> = HashMap::from([
+            (Key::Z, JoypadKeys::B),
+            (Key::X, JoypadKeys::A),
+            (Key::N, JoypadKeys::Select),
+            (Key::M, JoypadKeys::Start),
+            (Key::ArrowDown, JoypadKeys::Down),
+            (Key::ArrowUp, JoypadKeys::Up),
+            (Key::ArrowLeft, JoypadKeys::Left),
+            (Key::ArrowRight, JoypadKeys::Right),
+        ]);
+
+        for (key, joypad_key) in joypad_keymap {
+            if ctx.input(|i| i.key_down(key)) {
+                self.command_tx
+                    .send(EmulatorCommand::KeyPressed(joypad_key))
+                    .unwrap();
+            }
+
+            if ctx.input(|i| i.key_released(key)) {
+                self.command_tx
+                    .send(EmulatorCommand::KeyReleased(joypad_key))
+                    .unwrap();
+            }
+        }
+    }
+
+    fn show_debug_ui(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
+        egui::TopBottomPanel::top("main-menu").show(ctx, |ui| {
+            self.show_main_menu(ui, frame);
+        });
+
+        egui::SidePanel::left("debug-panel")
+            .min_width(400.0)
+            .resizable(false)
+            .show(ctx, |ui| {
+                egui::ScrollArea::vertical().show(ui, |ui| {
+                    ui.horizontal(|ui| {
+                        ui.selectable_value(&mut self.open_panel, Panel::Cpu, "CPU");
+                        ui.selectable_value(&mut self.open_panel, Panel::Ppu, "PPU");
+                        ui.selectable_value(&mut self.open_panel, Panel::Cartridge, "Cartridge");
+                        ui.selectable_value(&mut self.open_panel, Panel::Memory, "Memory");
+                        ui.selectable_value(&mut self.open_panel, Panel::Nametables, "Nametables");
+                    });
+                    ui.separator();
+
+                    match self.open_panel {
+                        Panel::Cpu => {
+                            if let Some(cpu_registers) = self.cpu_registers {
+                                self.show_cpu_registers(ui, cpu_registers);
+                            }
+                        }
+                        Panel::Ppu => {}
+                        Panel::Memory => {}
+                        Panel::Nametables => {}
+                        Panel::Cartridge => {}
+                    }
+
+                    ui.separator();
+                });
+            });
+
+
+
+        egui::CentralPanel::default().show(ctx, |ui| {
+            ui.vertical_centered(|ui| {
+                ui.add(egui::Image::new(
+                    &self.tex,
+                    self.tex.size_vec2() * self.game_scale_factor,
+                ));
+            })
+        });
+    }
+
     fn show_main_menu(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
         menu::bar(ui, |ui| {
             ui.menu_button("File", |ui| {
@@ -221,64 +295,9 @@ impl GameboyApp {
 
 impl eframe::App for GameboyApp {
     fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
-        egui::TopBottomPanel::top("main-menu").show(ctx, |ui| {
-            self.show_main_menu(ui, frame);
-        });
 
-        egui::SidePanel::left("debug-panel")
-            .min_width(400.0)
-            .resizable(false)
-            .show(ctx, |ui| {
-                egui::ScrollArea::vertical().show(ui, |ui| {
-                    ui.horizontal(|ui| {
-                        ui.selectable_value(&mut self.open_panel, Panel::Cpu, "CPU");
-                        ui.selectable_value(&mut self.open_panel, Panel::Ppu, "PPU");
-                        ui.selectable_value(&mut self.open_panel, Panel::Cartridge, "Cartridge");
-                        ui.selectable_value(&mut self.open_panel, Panel::Memory, "Memory");
-                        ui.selectable_value(&mut self.open_panel, Panel::Nametables, "Nametables");
-                    });
-                    ui.separator();
 
-                    match self.open_panel {
-                        Panel::Cpu => {
-                            if let Some(cpu_registers) = self.cpu_registers {
-                                self.show_cpu_registers(ui, cpu_registers);
-                            }
-                        }
-                        Panel::Ppu => {}
-                        Panel::Memory => {}
-                        Panel::Nametables => {}
-                        Panel::Cartridge => {}
-                    }
-
-                    ui.separator();
-                });
-            });
-
-        let joypad_keymap: HashMap<Key, JoypadKeys> = HashMap::from([
-            (Key::Z, JoypadKeys::B),
-            (Key::X, JoypadKeys::A),
-            (Key::N, JoypadKeys::Select),
-            (Key::M, JoypadKeys::Start),
-            (Key::ArrowDown, JoypadKeys::Down),
-            (Key::ArrowUp, JoypadKeys::Up),
-            (Key::ArrowLeft, JoypadKeys::Left),
-            (Key::ArrowRight, JoypadKeys::Right),
-        ]);
-
-        for (key, joypad_key) in joypad_keymap {
-            if ctx.input(|i| i.key_down(key)) {
-                self.command_tx
-                    .send(EmulatorCommand::KeyPressed(joypad_key))
-                    .unwrap();
-            }
-
-            if ctx.input(|i| i.key_released(key)) {
-                self.command_tx
-                    .send(EmulatorCommand::KeyReleased(joypad_key))
-                    .unwrap();
-            }
-        }
+        self.handle_input(ctx);
 
         self.command_tx.send(EmulatorCommand::RunFrame).unwrap();
         self.command_tx
@@ -300,15 +319,7 @@ impl eframe::App for GameboyApp {
             }
         }
 
-        egui::CentralPanel::default().show(ctx, |ui| {
-            ui.vertical_centered(|ui| {
-                ui.add(egui::Image::new(
-                    &self.tex,
-                    self.tex.size_vec2() * self.game_scale_factor,
-                ));
-            })
-        });
-
+        self.show_debug_ui(ctx, frame);
         ctx.request_repaint();
     }
 
