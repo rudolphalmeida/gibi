@@ -64,7 +64,7 @@ impl Joypad {
             0x10 => current |= (self.keys >> 4) & 0x0F,
             0x20 => current |= self.keys & 0x0F,
             0x30 => current |= 0x0F,
-            _ => {},
+            _ => {}
         }
 
         if (self.joyp & !current & 0x0F) != 0 {

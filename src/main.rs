@@ -1,16 +1,11 @@
 use std::{
     path::PathBuf,
-    sync::{Arc, mpsc},
+    sync::{mpsc, Arc},
 };
 
-use eframe::{
-    egui::{self},
-};
+use eframe::egui::{self};
 
-use gibi::{
-    EmulatorEvent, Frame, gameboy::Gameboy,
-    joypad::JoypadKeys,
-};
+use gibi::{gameboy::Gameboy, joypad::JoypadKeys, EmulatorEvent, Frame};
 use ui::GameboyApp;
 
 mod ui;

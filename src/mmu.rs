@@ -13,6 +13,7 @@ use crate::serial::{Serial, SERIAL_END, SERIAL_START};
 use crate::timer::{Timer, TIMER_END, TIMER_START};
 use crate::{EmulatorEvent, Frame, HardwareSupport, SystemState};
 
+use crate::memory::MemoryBus;
 use crate::{
     cartridge::{
         Cartridge, BOOT_ROM_END, BOOT_ROM_START, CART_RAM_END, CART_RAM_START, CART_ROM_END,
@@ -22,7 +23,6 @@ use crate::{
     memory::Memory,
     ppu::{Ppu, OAM_END, OAM_START, VRAM_END, VRAM_START},
 };
-use crate::memory::MemoryBus;
 
 const CART_HEADER_START: u16 = 0x100;
 const CART_HEADER_END: u16 = 0x1FF;
@@ -138,8 +138,6 @@ impl Mmu {
         }
     }
 
-
-
     fn tick_oam_dma(&self) {
         // Perform DMA
         let mut oam_dma_completed = false;
@@ -163,8 +161,6 @@ impl Mmu {
     fn oam_dma_in_progress(&self) -> bool {
         self.oam_dma.borrow().is_some()
     }
-
-
 
     fn wram_banked_read(&self, address: u16) -> u8 {
         // FIXME: Index out of range errors
@@ -191,8 +187,6 @@ impl Mmu {
 
         self.wram[index] = data
     }
-
-
 
     fn on_hdma5_write(&mut self, data: u8) {
         if (data & 0x80) == 0 {

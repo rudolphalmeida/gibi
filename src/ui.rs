@@ -1,13 +1,14 @@
-use eframe::{CreationContext, egui};
-use eframe::egui::{Color32, ColorImage, Key, menu, RichText, TextureOptions};
-use std::sync::{Arc, mpsc, Mutex};
-use gibi::cpu::Registers;
-use std::collections::HashMap;
-use eframe::epaint::ImageDelta;
-use gibi::{EmulatorEvent, Frame, GAMEBOY_HEIGHT, GAMEBOY_WIDTH};
-use gibi::joypad::JoypadKeys;
-use std::thread::JoinHandle;
 use crate::{EmulationThread, EmulatorCommand};
+use eframe::egui::load::SizedTexture;
+use eframe::egui::{menu, Color32, ColorImage, ImageSource, Key, RichText, TextureOptions};
+use eframe::epaint::ImageDelta;
+use eframe::{egui, CreationContext};
+use gibi::cpu::Registers;
+use gibi::joypad::JoypadKeys;
+use gibi::{EmulatorEvent, Frame, GAMEBOY_HEIGHT, GAMEBOY_WIDTH};
+use std::collections::HashMap;
+use std::sync::{mpsc, Arc, Mutex};
+use std::thread::JoinHandle;
 
 // Nearest neighbor filtering for the nice pixelated look
 const TEXTURE_OPTIONS: TextureOptions = TextureOptions {
@@ -138,14 +139,12 @@ impl GameboyApp {
                 });
             });
 
-
-
         egui::CentralPanel::default().show(ctx, |ui| {
             ui.vertical_centered(|ui| {
-                ui.add(egui::Image::new(
+                ui.add(egui::Image::new(ImageSource::Texture(SizedTexture::new(
                     &self.tex,
                     self.tex.size_vec2() * self.game_scale_factor,
-                ));
+                ))));
             })
         });
     }
@@ -295,8 +294,6 @@ impl GameboyApp {
 
 impl eframe::App for GameboyApp {
     fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
-
-
         self.handle_input(ctx);
 
         self.command_tx.send(EmulatorCommand::RunFrame).unwrap();

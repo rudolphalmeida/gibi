@@ -5,8 +5,8 @@ use paste::paste;
 use crate::interrupts::{
     InterruptHandler, InterruptType, INTERRUPT_ENABLE_ADDRESS, INTERRUPT_FLAG_ADDRESS,
 };
-use crate::{ExecutionState, SystemState};
 use crate::memory::MemoryBus;
+use crate::{ExecutionState, SystemState};
 
 pub(crate) struct Cpu<BusType: MemoryBus> {
     system_state: Rc<RefCell<SystemState>>,
@@ -20,7 +20,10 @@ pub(crate) struct Cpu<BusType: MemoryBus> {
     previous_execution_state: Option<ExecutionState>,
 }
 
-impl<BusType> Cpu<BusType> where BusType: MemoryBus {
+impl<BusType> Cpu<BusType>
+where
+    BusType: MemoryBus,
+{
     pub fn new(
         mmu: Rc<RefCell<BusType>>,
         interrupts: Rc<RefCell<InterruptHandler>>,
@@ -383,6 +386,7 @@ impl<BusType> Cpu<BusType> where BusType: MemoryBus {
             0x40..=0x7F => self.bit_n_r8(prefixed_opcode),
             0x80..=0xBF => self.res_n_r8(prefixed_opcode),
             0xC0..=0xFF => self.set_n_r8(prefixed_opcode),
+            _ => {}
         };
     }
 
@@ -1117,7 +1121,10 @@ enum ByteRegister<'a, BusType: MemoryBus> {
     MemoryReference(u16, Rc<RefCell<BusType>>),
 }
 
-impl<'a, BusType> ByteRegister<'a, BusType> where BusType: MemoryBus {
+impl<'a, BusType> ByteRegister<'a, BusType>
+where
+    BusType: MemoryBus,
+{
     pub fn for_r8(bits: u8, cpu: &'a mut Cpu<BusType>) -> Self {
         match bits {
             0 => ByteRegister::Register(&mut cpu.regs.b),
