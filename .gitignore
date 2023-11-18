@@ -9,3 +9,7 @@ logs
 roms
 
 .idea
+.vscode
+
+sm83-test-data
+gb_test_roms

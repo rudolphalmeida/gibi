@@ -1,3 +1,7 @@
 [submodule "gb_test_roms"]
 	path = gb_test_roms
     url = https://github.com/retrio/gb-test-roms
+
+[submodule "sm83-test-data"]
+    path = sm83-test-data
+    url = https://github.com/adtennant/sm83-test-data

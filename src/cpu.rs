@@ -1153,3 +1153,107 @@ where
         }
     }
 }
+
+#[cfg(test)]
+pub mod tests {
+    use std::fmt::Display;
+    use std::fs::File;
+    use std::io::Read;
+    use std::path::Path;
+    use std::str::FromStr;
+    use std::{io, num};
+
+    use num_traits;
+    use serde::{Deserialize, Deserializer};
+
+    use super::*;
+
+    pub fn deserialize_number_from_string<'de, T, D>(deserializer: D) -> Result<T, D::Error>
+    where
+        D: Deserializer<'de>,
+        T: FromStr + serde::Deserialize<'de> + num_traits::Unsigned,
+        <T as FromStr>::Err: Display,
+        <T as num_traits::Num>::FromStrRadixErr: std::fmt::Display,
+    {
+        #[derive(Deserialize)]
+        #[serde(untagged)]
+        enum StringOrInt<T> {
+            String(String),
+            Number(T),
+        }
+
+        match StringOrInt::<T>::deserialize(deserializer)? {
+            StringOrInt::String(s) => {
+                T::from_str_radix(s.trim_start_matches("0x"), 16).map_err(serde::de::Error::custom)
+            }
+            StringOrInt::Number(i) => Ok(i),
+        }
+    }
+
+    #[derive(Deserialize, Debug)]
+    struct CpuState {
+        #[serde(deserialize_with = "deserialize_number_from_string")]
+        a: u8,
+        #[serde(deserialize_with = "deserialize_number_from_string")]
+        b: u8,
+        #[serde(deserialize_with = "deserialize_number_from_string")]
+        c: u8,
+        #[serde(deserialize_with = "deserialize_number_from_string")]
+        d: u8,
+        #[serde(deserialize_with = "deserialize_number_from_string")]
+        e: u8,
+        #[serde(deserialize_with = "deserialize_number_from_string")]
+        f: u8,
+        #[serde(deserialize_with = "deserialize_number_from_string")]
+        h: u8,
+        #[serde(deserialize_with = "deserialize_number_from_string")]
+        l: u8,
+        #[serde(deserialize_with = "deserialize_number_from_string")]
+        pc: u16,
+        #[serde(deserialize_with = "deserialize_number_from_string")]
+        sp: u16,
+    }
+
+    #[derive(Deserialize, Debug)]
+    struct RamState(
+        #[serde(deserialize_with = "deserialize_number_from_string")] u16,
+        #[serde(deserialize_with = "deserialize_number_from_string")] u8,
+    );
+
+    #[derive(Deserialize, Debug)]
+    struct SystemState {
+        cpu: CpuState,
+        ram: Vec<RamState>,
+    }
+
+    #[derive(Deserialize, Debug)]
+    struct CycleState(
+        #[serde(deserialize_with = "deserialize_number_from_string")] u16,
+        #[serde(deserialize_with = "deserialize_number_from_string")] u8,
+        String,
+    );
+
+    #[derive(Deserialize, Debug)]
+
+    struct OpcodeTestCase {
+        name: String,
+        initial: SystemState,
+        r#final: SystemState,
+        cycles: Vec<CycleState>,
+    }
+
+    fn read_test_data(opcode: u8) -> io::Result<Vec<OpcodeTestCase>> {
+        let path_str = format!("./sm83-test-data/cpu_tests/v1/{:02x}.json", opcode);
+        let path = Path::new(&path_str);
+        let mut test_data = String::new();
+        File::open(path)?.read_to_string(&mut test_data)?;
+        let deserialized_test_data = serde_json::from_str(&test_data).unwrap();
+        Ok(deserialized_test_data)
+    }
+
+    #[test]
+    fn test_foo() {
+        let test_data = read_test_data(0xA).expect("TODO: panic message");
+        println!("{:?}", test_data[0]);
+    }
+}
