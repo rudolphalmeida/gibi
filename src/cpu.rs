@@ -1156,13 +1156,15 @@ where
 
 #[cfg(test)]
 pub mod tests {
+    use std::cell::Cell;
     use std::fmt::Display;
     use std::fs::File;
+    use std::io;
     use std::io::Read;
     use std::path::Path;
     use std::str::FromStr;
-    use std::{io, num};
 
+    use crate::memory::Memory;
     use num_traits;
     use serde::{Deserialize, Deserializer};
 
@@ -1251,9 +1253,56 @@ pub mod tests {
         Ok(deserialized_test_data)
     }
 
+    struct FlatMmu {
+        memory: [u8; 0xFFFF],
+        ticked_cycle_count: Cell<u64>,
+    }
+
+    impl FlatMmu {
+        pub fn new(ram_states: &[RamState]) -> Self {
+            let mut memory = [0x00; 0xFFFF];
+            for ram_state in ram_states {
+                memory[ram_state.0 as usize] = ram_state.1;
+            }
+
+            Self {
+                memory,
+                ticked_cycle_count: Cell::new(0),
+            }
+        }
+    }
+
+    impl Memory for FlatMmu {
+        fn read(&self, address: u16) -> u8 {
+            self.tick();
+            self.raw_read(address)
+        }
+
+        fn write(&mut self, address: u16, data: u8) {
+            self.tick();
+            self.raw_write(address, data);
+        }
+    }
+
+    impl MemoryBus for FlatMmu {
+        fn raw_read(&self, address: u16) -> u8 {
+            self.memory[address as usize]
+        }
+
+        fn raw_write(&mut self, address: u16, data: u8) {
+            self.memory[address as usize] = data
+        }
+
+        fn tick(&self) {
+            self.ticked_cycle_count
+                .set(self.ticked_cycle_count.get() + 1);
+        }
+    }
+
     #[test]
-    fn test_foo() {
-        let test_data = read_test_data(0xA).expect("TODO: panic message");
+    fn test_00() -> io::Result<()> {
+        let test_data = read_test_data(0x00)?;
         println!("{:?}", test_data[0]);
+        Ok(())
     }
 }
