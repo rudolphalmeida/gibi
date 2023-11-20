@@ -1,7 +1,6 @@
 #![allow(dead_code)] // Only for development
 
-use std::sync::{Arc, Mutex};
-
+use crate::textures::Texture;
 use cpu::Registers;
 use ppu::{LCD_HEIGHT, LCD_WIDTH};
 
@@ -9,6 +8,7 @@ mod apu;
 mod cartridge;
 pub mod cpu;
 pub mod debug;
+pub mod framebuffer;
 pub mod gameboy;
 mod interrupts;
 pub mod joypad;
@@ -17,12 +17,10 @@ mod mmu;
 mod palettes;
 pub mod ppu;
 mod serial;
+pub mod textures;
 mod timer;
 
-pub const GAMEBOY_WIDTH: f32 = LCD_WIDTH as f32;
-pub const GAMEBOY_HEIGHT: f32 = LCD_HEIGHT as f32;
-
-pub type Frame = Arc<Mutex<Vec<u8>>>;
+pub type GameFrame = Texture<LCD_WIDTH, LCD_HEIGHT>;
 
 pub enum EmulatorEvent {
     /// Raised on Vblank

@@ -2,10 +2,12 @@ use std::cell::RefCell;
 use std::rc::Rc;
 use std::sync::mpsc::Sender;
 
+use crate::framebuffer::access;
 use crate::interrupts::{InterruptHandler, InterruptType};
 use crate::memory::Memory;
 use crate::palettes::Palette;
-use crate::{EmulatorEvent, Frame, SystemState};
+use crate::textures::{Texture, RGBA};
+use crate::{EmulatorEvent, GameFrame, SystemState};
 
 pub(crate) const VRAM_START: u16 = 0x8000;
 pub(crate) const VRAM_END: u16 = 0x9FFF;
@@ -72,11 +74,11 @@ const RENDERING_DOTS: u64 = 168;
 const HBLANK_DOTS: u64 = 208;
 const SCANLINE_DOTS: u64 = OAM_SEARCH_DOTS + RENDERING_DOTS + HBLANK_DOTS;
 
-pub const LCD_WIDTH: u32 = 160;
-pub const LCD_HEIGHT: u32 = 144;
+pub const LCD_WIDTH: usize = 160;
+pub const LCD_HEIGHT: usize = 144;
 
 const VBLANK_SCANLINES: u32 = 10;
-const TOTAL_SCANLINES: u32 = LCD_HEIGHT + VBLANK_SCANLINES;
+const TOTAL_SCANLINES: u32 = LCD_HEIGHT as u32 + VBLANK_SCANLINES;
 const VBLANK_DOTS: u64 = VBLANK_SCANLINES as u64 * SCANLINE_DOTS;
 
 const COLOR_PALETTE_SIZE: usize = 64;
@@ -117,7 +119,7 @@ pub(crate) struct Ppu {
 
     interrupts: Rc<RefCell<InterruptHandler>>,
 
-    frame: Frame,
+    frame: GameFrame,
     // Index in palette of each color that was used for background
     bg_color_indices: Vec<RenderedBackgroundPixel>,
 
@@ -128,7 +130,6 @@ pub(crate) struct Ppu {
 
 impl Ppu {
     pub fn new(
-        frame: Frame,
         interrupts: Rc<RefCell<InterruptHandler>>,
         system_state: Rc<RefCell<SystemState>>,
         event_tx: Sender<EmulatorEvent>,
@@ -158,8 +159,8 @@ impl Ppu {
             color_bg_palettes: [0xFF; COLOR_PALETTE_SIZE],
             color_obj_palettes: [0xFF; COLOR_PALETTE_SIZE],
             interrupts,
-            frame,
-            bg_color_indices: vec![Default::default(); (LCD_WIDTH * LCD_HEIGHT) as usize],
+            frame: Default::default(),
+            bg_color_indices: vec![Default::default(); LCD_WIDTH * LCD_HEIGHT],
             event_tx,
             system_state,
         }
@@ -248,6 +249,10 @@ impl Ppu {
         }
     }
 
+    pub(crate) fn write_frame(&self, frame_writer: &mut access::AccessW<GameFrame>) {
+        *frame_writer.get().write() = self.frame.clone();
+    }
+
     fn assert_lcd_stat(&mut self, old_stat: LcdStat) {
         if !old_stat.is_stat_irq_asserted() && self.stat.is_stat_irq_asserted() {
             self.interrupts
@@ -269,32 +274,27 @@ impl Ppu {
                 // Reference: https://gbdev.io/pandocs/LCDC.html#non-cgb-mode-dmg-sgb-and-cgb-in-compatibility-mode-bg-and-window-display
                 let palette_spec = &self.color_bg_palettes[0..8];
                 let palette = Palette::new_color(palette_spec);
-                let row_first_index = self.ly as usize * LCD_WIDTH as usize * 4;
-                let row_last_index = (self.ly + 1) as usize * LCD_WIDTH as usize * 4 - 1;
 
-                let mut frame = self.frame.lock().unwrap();
-                let framebuffer = frame.as_mut_slice();
-
-                for pixel in framebuffer[row_first_index..=row_last_index].chunks_mut(4) {
-                    pixel.copy_from_slice(&palette.color0());
+                for pixel in self.frame.data[self.ly as usize].iter_mut() {
+                    *pixel = palette.color0();
                 }
             }
 
             // Both BG/Window and Window should be enabled to draw window pixels
             if self.lcdc.bg_and_window_enabled() && self.lcdc.window_enabled() {
-                self.render_window_line();
+                // self.render_window_line();
             }
         } else {
             self.render_background_line();
 
             if self.lcdc.window_enabled() {
-                self.render_window_line();
+                // self.render_window_line();
             }
         }
 
         // Sprites are drawn the same regardless of DMG-Compat or CGB mode
         if self.lcdc.sprites_enabled() {
-            self.draw_sprites_on_ly();
+            // self.draw_sprites_on_ly();
         }
     }
 
@@ -303,12 +303,8 @@ impl Ppu {
         let tilemap_address = self.lcdc.bg_tilemap_area() as usize;
 
         let screen_y = self.ly as usize;
-        let row_first_index = screen_y * LCD_WIDTH as usize * 4;
 
-        let mut frame = self.frame.lock().unwrap();
-        let framebuffer = frame.as_mut_slice();
-
-        for screen_x in 0..LCD_WIDTH as usize {
+        for screen_x in 0..LCD_WIDTH {
             // Displace the coordinate in the background map by the position of the viewport that is
             // shown on the screen and wrap around the BG map if it overflows the BG map
             let bg_map_x = (screen_x + self.scx as usize) % BG_MAP_SIZE;
@@ -329,16 +325,12 @@ impl Ppu {
             } else {
                 self.render_cgb_bg(bg_map_x, bg_map_y, tile_id, tile_attr, tileset_address)
             };
-            self.bg_color_indices[screen_y * LCD_WIDTH as usize + screen_x] =
-                RenderedBackgroundPixel {
-                    bg_color_index: color_id,
-                    bg_priority: (tile_attr & 0x80) == 0x80,
-                };
+            self.bg_color_indices[screen_y * LCD_WIDTH + screen_x] = RenderedBackgroundPixel {
+                bg_color_index: color_id,
+                bg_priority: (tile_attr & 0x80) == 0x80,
+            };
 
-            let pixel_start_index = row_first_index + screen_x * 4;
-            let pixel = &mut framebuffer[pixel_start_index..(pixel_start_index + 4)];
-
-            pixel.copy_from_slice(&pixel_color);
+            self.frame.data[screen_y][screen_x] = pixel_color;
         }
     }
 
@@ -348,7 +340,7 @@ impl Ppu {
         bg_map_y: usize,
         tile_id: u8,
         tileset_address: usize,
-    ) -> ([u8; 4], u8) {
+    ) -> (RGBA, u8) {
         let tile_pixel_x = bg_map_x % TILE_WIDTH_PX;
         let tile_pixel_y = bg_map_y % TILE_HEIGHT_PX;
 
@@ -380,7 +372,7 @@ impl Ppu {
         tile_id: u8,
         tile_attr: u8,
         tileset_address: usize,
-    ) -> ([u8; 4], u8) {
+    ) -> (RGBA, u8) {
         let tile_data_vram_bank = ((tile_attr & 8) >> 3) as usize;
 
         // Vertical flip
@@ -421,193 +413,188 @@ impl Ppu {
         (palette.actual_color_from_index(color_id), color_id)
     }
 
-    fn render_window_line(&mut self) {
-        let tileset_address = self.lcdc.bg_and_window_tiledata_area() as usize;
-        let tilemap_address = self.lcdc.window_tilemap_area() as usize;
-
-        // The first row of the window has not been reached yet or the window is placed to the
-        // extreme right outside the screen
-        if self.ly < self.wy || self.wx as u32 >= LCD_WIDTH + 7 {
-            return;
-        }
-        // This is the value of the internal Window counter in the Game boy hardware for this LY
-        let window_y = match self.window_internal_counter {
-            Some(x) => {
-                self.window_internal_counter = Some(x + 1);
-                x
-            }
-            None => {
-                self.window_internal_counter = Some(1);
-                0
-            }
-        } as usize;
-
-        let window_x_start = if self.wx < 7 { 7 - self.wx } else { 0x00 } as usize;
-        let screen_x_start = self.wx.saturating_sub(7) as usize;
-
-        let screen_y = self.ly as usize;
-        // The window spans from the wx - 7 to the end of the scanline
-        let row_first_index = screen_y * LCD_WIDTH as usize * 4 + screen_x_start * 4;
-        let row_last_index = (screen_y + 1) * LCD_WIDTH as usize * 4 - 1;
-
-        let mut frame = self.frame.lock().unwrap();
-        let framebuffer = frame.as_mut_slice();
-
-        for (window_index_x, pixel) in framebuffer[row_first_index..=row_last_index]
-            .chunks_mut(4)
-            .enumerate()
-        {
-            let window_x = window_x_start + window_index_x;
-
-            let tile_x = window_x / TILE_WIDTH_PX;
-            let tile_y = window_y / TILE_HEIGHT_PX;
-
-            let tile_pixel_x = window_x % TILE_WIDTH_PX;
-            let tile_pixel_y = window_y % TILE_HEIGHT_PX;
-
-            let tile_index = tile_y * TILES_PER_LINE + tile_x;
-            let tile_index_address = tilemap_address + tile_index;
-            let tile_id = self.vram[vram_index(tile_index_address as u16, 0)];
-            let tile_attr = self.vram[vram_index(tile_index_address as u16, 1)];
-
-            let window_palette_number = tile_attr as usize & 0b111;
-            let palette_spec = &self.color_bg_palettes
-                [(window_palette_number * 8)..((window_palette_number + 1) * 8)];
-            let palette = Palette::new_color(palette_spec);
-
-            let tiledata_mem_offset = match self.lcdc.bg_and_window_tiledata_area() {
-                TiledataAddressingMode::Signed => {
-                    (tile_id as i8 as i16 + 128) as usize * SIZEOF_TILE
-                }
-                TiledataAddressingMode::Unsigned => tile_id as usize * SIZEOF_TILE,
-            };
-            let tiledata_line_offset = tile_pixel_y * 2;
-            let tile_line_data_start_address =
-                tileset_address + tiledata_mem_offset + tiledata_line_offset;
-
-            let pixel_1 = self.vram[vram_index(tile_line_data_start_address as u16, 0)];
-            let pixel_2 = self.vram[vram_index(tile_line_data_start_address as u16 + 1, 0)];
-
-            let index = 7 - tile_pixel_x as u8;
-            let color_id = ((u8::from(pixel_2 & (1 << index) != 0)) << 1)
-                | u8::from(pixel_1 & (1 << index) != 0);
-            pixel.copy_from_slice(&palette.actual_color_from_index(color_id));
-        }
-    }
-
-    fn draw_sprites_on_ly(&mut self) {
-        let sprites = self.get_sprites_on_ly();
-        let sprite_height = self.lcdc.sprite_height() as u8;
-
-        let mut frame = self.frame.lock().unwrap();
-        let framebuffer = frame.as_mut_slice();
-        let screen_y = self.ly as usize;
-
-        // On the DMG model the sprite priority is determined by two conditions:
-        // 1. The smaller the X-coordinate the higher the priority
-        // 2. When the X-coordinate is same, the object located first in the
-        //    OAM gets priority
-        // On CGB, only the second condition is used
-        // Drawing in reverse will handle condition 2. For condition 1, the `get_sprites` function
-        // should have sorted the sprites in increasing order of the X-coord if we are DMG mode
-        for sprite in sprites.iter().rev() {
-            // Sprite is hidden beyond the screen
-            if sprite.x == 0 || sprite.x >= 168 {
-                continue;
-            }
-
-            // Sprites always use the 0x8000 unsigned addressing mode
-            let sprite_tile_address = match self.lcdc.sprite_height() {
-                SpriteHeight::Short => sprite.tile_index,
-                // Bit-0 of tile-index should be ignored for tall sprites
-                SpriteHeight::Tall => sprite.tile_index & 0xFE,
-            } as u16
-                * SIZEOF_TILE as u16
-                + TiledataAddressingMode::Unsigned as u16;
-
-            // We offset LY by 16 to ease the following calculations and prevent overflow checks
-            let offset_ly = self.ly + 16;
-
-            let sprite_line_offset = if sprite.flip_y() {
-                sprite_height - (offset_ly - sprite.y) - 1
-            } else {
-                offset_ly - sprite.y
-            };
-
-            let tile_line_data_start_address =
-                sprite_tile_address + (sprite_line_offset as u16 * 2);
-
-            let obj_palette_number =
-                sprite.palette(self.system_state.borrow().dmg_compat_mode()) as usize;
-            let palette_spec =
-                &self.color_obj_palettes[(obj_palette_number * 8)..((obj_palette_number + 1) * 8)];
-            let palette = Palette::new_color(palette_spec);
-
-            let pixel_1 = self.vram[vram_index(tile_line_data_start_address, sprite.vram_bank())];
-            let pixel_2 =
-                self.vram[vram_index(tile_line_data_start_address + 1, sprite.vram_bank())];
-
-            // The sprite is partially hidden on the left
-            let (visible_column_start, visible_column_end, screen_x_start) = if sprite.x < 8 {
-                (8 - sprite.x, 7, 0)
-            } else if sprite.x > 160 {
-                // The sprite is partially hidden on the right
-                (0, 168 - sprite.x, sprite.x - 8)
-            } else {
-                // The sprite is entirely visible
-                (0, 7, sprite.x - 8)
-            };
-
-            let columns_visible = visible_column_end - visible_column_start + 1;
-
-            let sprite_first_index =
-                self.ly as usize * 4 * LCD_WIDTH as usize + screen_x_start as usize * 4;
-            let sprite_last_index = (self.ly as usize * 4 * LCD_WIDTH as usize
-                + (screen_x_start + columns_visible) as usize * 4)
-                - 1;
-
-            for (i, pixel) in framebuffer[sprite_first_index..=sprite_last_index]
-                .chunks_mut(4)
-                .enumerate()
-            {
-                let pixel_index = if sprite.flip_x() {
-                    visible_column_start + i as u8
-                } else {
-                    7 - (visible_column_start + i as u8)
-                };
-
-                let color_id = (u8::from(pixel_2 & (1 << pixel_index) != 0) << 1)
-                    | u8::from(pixel_1 & (1 << pixel_index) != 0);
-
-                // Color ID 00 is transparent for sprites
-                if color_id == 0b00 {
-                    continue;
-                }
-
-                let screen_x = sprite.x as usize + i;
-                let RenderedBackgroundPixel {
-                    bg_color_index,
-                    bg_priority,
-                } = self.bg_color_indices[screen_y * LCD_WIDTH as usize + screen_x];
-
-                if self.system_state.borrow().dmg_compat_mode() {
-                    if sprite.bg_window_over_sprite() {
-                        if bg_color_index == 0 {
-                            pixel.copy_from_slice(&palette.actual_color_from_index(color_id));
-                        }
-                    } else {
-                        pixel.copy_from_slice(&palette.actual_color_from_index(color_id));
-                    };
-                } else if bg_color_index == 0 // If the BG color index is 0, the OBJ always has priority
-                    || !self.lcdc.bg_and_window_enabled() // if LCDC bit 0 is clear, the OBJ will always have priority
-                    || (!bg_priority && !sprite.bg_window_over_sprite())
-                // if both the BG Attributes and the OAM Attributes have bit 7 clear, the OBJ will have priority
-                {
-                    pixel.copy_from_slice(&palette.actual_color_from_index(color_id));
-                }
-            }
-        }
-    }
+    // fn render_window_line(&mut self) {
+    //     let tileset_address = self.lcdc.bg_and_window_tiledata_area() as usize;
+    //     let tilemap_address = self.lcdc.window_tilemap_area() as usize;
+    //
+    //     // The first row of the window has not been reached yet or the window is placed to the
+    //     // extreme right outside the screen
+    //     if self.ly < self.wy || self.wx as u32 >= LCD_WIDTH as u32 + 7 {
+    //         return;
+    //     }
+    //     // This is the value of the internal Window counter in the Game boy hardware for this LY
+    //     let window_y = match self.window_internal_counter {
+    //         Some(x) => {
+    //             self.window_internal_counter = Some(x + 1);
+    //             x
+    //         }
+    //         None => {
+    //             self.window_internal_counter = Some(1);
+    //             0
+    //         }
+    //     } as usize;
+    //
+    //     let window_x_start = if self.wx < 7 { 7 - self.wx } else { 0x00 } as usize;
+    //     let screen_x_start = self.wx.saturating_sub(7) as usize;
+    //
+    //     let screen_y = self.ly as usize;
+    //     // The window spans from the wx - 7 to the end of the scanline
+    //     let row_first_index = screen_y * LCD_WIDTH as usize * 4 + screen_x_start * 4;
+    //     let row_last_index = (screen_y + 1) * LCD_WIDTH as usize * 4 - 1;
+    //
+    //     for (window_index_x, pixel) in framebuffer[row_first_index..=row_last_index]
+    //         .chunks_mut(4)
+    //         .enumerate()
+    //     {
+    //         let window_x = window_x_start + window_index_x;
+    //
+    //         let tile_x = window_x / TILE_WIDTH_PX;
+    //         let tile_y = window_y / TILE_HEIGHT_PX;
+    //
+    //         let tile_pixel_x = window_x % TILE_WIDTH_PX;
+    //         let tile_pixel_y = window_y % TILE_HEIGHT_PX;
+    //
+    //         let tile_index = tile_y * TILES_PER_LINE + tile_x;
+    //         let tile_index_address = tilemap_address + tile_index;
+    //         let tile_id = self.vram[vram_index(tile_index_address as u16, 0)];
+    //         let tile_attr = self.vram[vram_index(tile_index_address as u16, 1)];
+    //
+    //         let window_palette_number = tile_attr as usize & 0b111;
+    //         let palette_spec = &self.color_bg_palettes
+    //             [(window_palette_number * 8)..((window_palette_number + 1) * 8)];
+    //         let palette = Palette::new_color(palette_spec);
+    //
+    //         let tiledata_mem_offset = match self.lcdc.bg_and_window_tiledata_area() {
+    //             TiledataAddressingMode::Signed => {
+    //                 (tile_id as i8 as i16 + 128) as usize * SIZEOF_TILE
+    //             }
+    //             TiledataAddressingMode::Unsigned => tile_id as usize * SIZEOF_TILE,
+    //         };
+    //         let tiledata_line_offset = tile_pixel_y * 2;
+    //         let tile_line_data_start_address =
+    //             tileset_address + tiledata_mem_offset + tiledata_line_offset;
+    //
+    //         let pixel_1 = self.vram[vram_index(tile_line_data_start_address as u16, 0)];
+    //         let pixel_2 = self.vram[vram_index(tile_line_data_start_address as u16 + 1, 0)];
+    //
+    //         let index = 7 - tile_pixel_x as u8;
+    //         let color_id = ((u8::from(pixel_2 & (1 << index) != 0)) << 1)
+    //             | u8::from(pixel_1 & (1 << index) != 0);
+    //         pixel.copy_from_slice(&palette.actual_color_from_index(color_id));
+    //     }
+    // }
+    //
+    // fn draw_sprites_on_ly(&mut self) {
+    //     let sprites = self.get_sprites_on_ly();
+    //     let sprite_height = self.lcdc.sprite_height() as u8;
+    //
+    //     let screen_y = self.ly as usize;
+    //
+    //     // On the DMG model the sprite priority is determined by two conditions:
+    //     // 1. The smaller the X-coordinate the higher the priority
+    //     // 2. When the X-coordinate is same, the object located first in the
+    //     //    OAM gets priority
+    //     // On CGB, only the second condition is used
+    //     // Drawing in reverse will handle condition 2. For condition 1, the `get_sprites` function
+    //     // should have sorted the sprites in increasing order of the X-coord if we are DMG mode
+    //     for sprite in sprites.iter().rev() {
+    //         // Sprite is hidden beyond the screen
+    //         if sprite.x == 0 || sprite.x >= 168 {
+    //             continue;
+    //         }
+    //
+    //         // Sprites always use the 0x8000 unsigned addressing mode
+    //         let sprite_tile_address = match self.lcdc.sprite_height() {
+    //             SpriteHeight::Short => sprite.tile_index,
+    //             // Bit-0 of tile-index should be ignored for tall sprites
+    //             SpriteHeight::Tall => sprite.tile_index & 0xFE,
+    //         } as u16
+    //             * SIZEOF_TILE as u16
+    //             + TiledataAddressingMode::Unsigned as u16;
+    //
+    //         // We offset LY by 16 to ease the following calculations and prevent overflow checks
+    //         let offset_ly = self.ly + 16;
+    //
+    //         let sprite_line_offset = if sprite.flip_y() {
+    //             sprite_height - (offset_ly - sprite.y) - 1
+    //         } else {
+    //             offset_ly - sprite.y
+    //         };
+    //
+    //         let tile_line_data_start_address =
+    //             sprite_tile_address + (sprite_line_offset as u16 * 2);
+    //
+    //         let obj_palette_number =
+    //             sprite.palette(self.system_state.borrow().dmg_compat_mode()) as usize;
+    //         let palette_spec =
+    //             &self.color_obj_palettes[(obj_palette_number * 8)..((obj_palette_number + 1) * 8)];
+    //         let palette = Palette::new_color(palette_spec);
+    //
+    //         let pixel_1 = self.vram[vram_index(tile_line_data_start_address, sprite.vram_bank())];
+    //         let pixel_2 =
+    //             self.vram[vram_index(tile_line_data_start_address + 1, sprite.vram_bank())];
+    //
+    //         // The sprite is partially hidden on the left
+    //         let (visible_column_start, visible_column_end, screen_x_start) = if sprite.x < 8 {
+    //             (8 - sprite.x, 7, 0)
+    //         } else if sprite.x > 160 {
+    //             // The sprite is partially hidden on the right
+    //             (0, 168 - sprite.x, sprite.x - 8)
+    //         } else {
+    //             // The sprite is entirely visible
+    //             (0, 7, sprite.x - 8)
+    //         };
+    //
+    //         let columns_visible = visible_column_end - visible_column_start + 1;
+    //
+    //         let sprite_first_index =
+    //             self.ly as usize * 4 * LCD_WIDTH as usize + screen_x_start as usize * 4;
+    //         let sprite_last_index = (self.ly as usize * 4 * LCD_WIDTH as usize
+    //             + (screen_x_start + columns_visible) as usize * 4)
+    //             - 1;
+    //
+    //         for (i, pixel) in framebuffer[sprite_first_index..=sprite_last_index]
+    //             .chunks_mut(4)
+    //             .enumerate()
+    //         {
+    //             let pixel_index = if sprite.flip_x() {
+    //                 visible_column_start + i as u8
+    //             } else {
+    //                 7 - (visible_column_start + i as u8)
+    //             };
+    //
+    //             let color_id = (u8::from(pixel_2 & (1 << pixel_index) != 0) << 1)
+    //                 | u8::from(pixel_1 & (1 << pixel_index) != 0);
+    //
+    //             // Color ID 00 is transparent for sprites
+    //             if color_id == 0b00 {
+    //                 continue;
+    //             }
+    //
+    //             let screen_x = sprite.x as usize + i;
+    //             let RenderedBackgroundPixel {
+    //                 bg_color_index,
+    //                 bg_priority,
+    //             } = self.bg_color_indices[screen_y * LCD_WIDTH as usize + screen_x];
+    //
+    //             if self.system_state.borrow().dmg_compat_mode() {
+    //                 if sprite.bg_window_over_sprite() {
+    //                     if bg_color_index == 0 {
+    //                         pixel.copy_from_slice(&palette.actual_color_from_index(color_id));
+    //                     }
+    //                 } else {
+    //                     pixel.copy_from_slice(&palette.actual_color_from_index(color_id));
+    //                 };
+    //             } else if bg_color_index == 0 // If the BG color index is 0, the OBJ always has priority
+    //                 || !self.lcdc.bg_and_window_enabled() // if LCDC bit 0 is clear, the OBJ will always have priority
+    //                 || (!bg_priority && !sprite.bg_window_over_sprite())
+    //             // if both the BG Attributes and the OAM Attributes have bit 7 clear, the OBJ will have priority
+    //             {
+    //                 pixel.copy_from_slice(&palette.actual_color_from_index(color_id));
+    //             }
+    //         }
+    //     }
+    // }
 
     fn get_sprites_on_ly(&self) -> Vec<Sprite> {
         let mut sprites = Vec::with_capacity(10);

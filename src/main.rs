@@ -5,7 +5,14 @@ use std::{
 
 use eframe::egui::{self};
 
-use gibi::{gameboy::Gameboy, joypad::JoypadKeys, EmulatorEvent, Frame};
+use gibi::framebuffer::access;
+use gibi::textures::Texture;
+use gibi::{
+    gameboy::Gameboy,
+    joypad::JoypadKeys,
+    ppu::{LCD_HEIGHT, LCD_WIDTH},
+    EmulatorEvent, GameFrame,
+};
 use ui::GameboyApp;
 
 mod ui;
@@ -51,7 +58,7 @@ struct EmulationThread {
     gameboy: Option<Gameboy>,
     running: bool,
 
-    frame: Frame,
+    frame_writer: access::AccessW<GameFrame>,
 
     command_rc: mpsc::Receiver<EmulatorCommand>,
     event_tx: mpsc::Sender<EmulatorEvent>,
@@ -59,7 +66,7 @@ struct EmulationThread {
 
 impl EmulationThread {
     fn new(
-        frame: Frame,
+        frame_writer: access::AccessW<GameFrame>,
         command_rc: mpsc::Receiver<EmulatorCommand>,
         event_tx: mpsc::Sender<EmulatorEvent>,
     ) -> Self {
@@ -67,9 +74,9 @@ impl EmulationThread {
             loaded_rom_file: None,
             gameboy: None,
             running: false,
-            frame,
             command_rc,
             event_tx,
+            frame_writer,
         }
     }
 
@@ -81,18 +88,14 @@ impl EmulationThread {
                         // TODO: Save if a game is already running
                         let rom = std::fs::read(&path).unwrap();
                         self.loaded_rom_file = Some(path);
-                        self.gameboy = Some(Gameboy::new(
-                            Arc::clone(&self.frame),
-                            rom,
-                            None,
-                            self.event_tx.clone(),
-                        ));
+                        self.gameboy = Some(Gameboy::new(rom, None, self.event_tx.clone()));
                     }
                     EmulatorCommand::Start if self.gameboy.is_some() => self.running = true,
                     EmulatorCommand::Start => {}
                     EmulatorCommand::RunFrame if self.running => {
                         let gb_ctx = self.gameboy.as_mut().unwrap();
                         gb_ctx.run_one_frame();
+                        gb_ctx.write_frame(&mut self.frame_writer);
                         self.event_tx.send(EmulatorEvent::CompletedFrame).unwrap();
                     }
                     EmulatorCommand::RunFrame => {}

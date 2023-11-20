@@ -1,11 +1,11 @@
 #[derive(Clone, Copy, Debug, Default)]
 #[repr(C, packed)]
-pub struct RGB(pub u8, pub u8, pub u8);
+pub struct RGBA(pub u8, pub u8, pub u8, pub u8);
 
-impl RGB {
+impl RGBA {
     #[inline(always)]
-    pub fn new(r: u8, g: u8, b: u8) -> Self {
-        RGB(r, g, b)
+    pub fn new(r: u8, g: u8, b: u8, a: u8) -> Self {
+        RGBA(r, g, b, a)
     }
 
     #[inline(always)]
@@ -31,12 +31,12 @@ impl RGB {
 
 #[derive(Clone, Debug)]
 pub struct Texture<const WIDTH: usize, const HEIGHT: usize> {
-    pub data: [[RGB; WIDTH]; HEIGHT],
+    pub data: [[RGBA; WIDTH]; HEIGHT],
 }
 
 impl<const WIDTH: usize, const HEIGHT: usize> Texture<WIDTH, HEIGHT> {
     pub fn pitch(&self) -> usize {
-        WIDTH * std::mem::size_of::<RGB>()
+        WIDTH * std::mem::size_of::<RGBA>()
     }
 
     pub const fn width(&self) -> usize {

@@ -11,7 +11,7 @@ use crate::ppu::{
 };
 use crate::serial::{Serial, SERIAL_END, SERIAL_START};
 use crate::timer::{Timer, TIMER_END, TIMER_START};
-use crate::{EmulatorEvent, Frame, HardwareSupport, SystemState};
+use crate::{EmulatorEvent, HardwareSupport, SystemState};
 
 use crate::memory::MemoryBus;
 use crate::{
@@ -73,7 +73,7 @@ struct OamDma {
 /// correct component to which the address is mapped.
 pub(crate) struct Mmu {
     pub(crate) cart: Box<dyn Cartridge>,
-    ppu: RefCell<Ppu>,
+    pub(crate) ppu: RefCell<Ppu>,
     apu: RefCell<Apu>,
     joypad: Rc<RefCell<Joypad>>,
     timer: RefCell<Timer>,
@@ -99,7 +99,6 @@ impl Mmu {
         system_state: Rc<RefCell<SystemState>>,
         joypad: Rc<RefCell<Joypad>>,
         interrupts: Rc<RefCell<InterruptHandler>>,
-        frame: Frame,
         event_tx: Sender<EmulatorEvent>,
     ) -> Self {
         let wram = [0x00; WRAM_BANK_SIZE * 8]; // 32KB
@@ -112,7 +111,6 @@ impl Mmu {
         let oam_dma = RefCell::new(None);
 
         let ppu = RefCell::new(Ppu::new(
-            frame,
             Rc::clone(&interrupts),
             Rc::clone(&system_state),
             event_tx,

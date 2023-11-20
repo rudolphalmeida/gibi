@@ -4,10 +4,11 @@ use std::{cell::RefCell, rc::Rc};
 use std::{fs, io};
 
 use crate::cartridge::init_mbc_from_rom;
+use crate::framebuffer::access;
 use crate::interrupts::InterruptHandler;
 use crate::joypad::{Joypad, JoypadKeys};
-use crate::{cpu::Cpu, mmu::Mmu};
-use crate::{EmulatorEvent, ExecutionState, Frame, HardwareSupport, HdmaState, SystemState};
+use crate::{cpu::Cpu, mmu::Mmu, GameFrame};
+use crate::{EmulatorEvent, ExecutionState, HardwareSupport, HdmaState, SystemState};
 
 const CYCLES_PER_FRAME: u64 = 17556;
 
@@ -21,12 +22,7 @@ pub struct Gameboy {
 }
 
 impl Gameboy {
-    pub fn new(
-        frame: Frame,
-        rom: Vec<u8>,
-        ram: Option<Vec<u8>>,
-        event_tx: Sender<EmulatorEvent>,
-    ) -> Self {
+    pub fn new(rom: Vec<u8>, ram: Option<Vec<u8>>, event_tx: Sender<EmulatorEvent>) -> Self {
         let cart = init_mbc_from_rom(rom, ram);
         let hardware_support = cart.hardware_supported();
 
@@ -57,7 +53,6 @@ impl Gameboy {
             Rc::clone(&system_state),
             Rc::clone(&joypad),
             Rc::clone(&interrupts),
-            frame,
             event_tx.clone(),
         )));
         let cpu = Cpu::new(Rc::clone(&mmu), interrupts, Rc::clone(&system_state));
@@ -100,6 +95,10 @@ impl Gameboy {
 
         let carry_over_cycles = self.system_state.borrow().total_cycles - target_machine_cycles;
         self.system_state.borrow_mut().carry_over_cycles = carry_over_cycles;
+    }
+
+    pub fn write_frame(&self, frame_writer: &mut access::AccessW<GameFrame>) {
+        self.mmu.borrow().ppu.borrow().write_frame(frame_writer);
     }
 
     pub fn keydown(&mut self, key: JoypadKeys) {

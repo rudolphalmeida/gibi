@@ -1,11 +1,16 @@
-use crate::{EmulationThread, EmulatorCommand};
+use crate::{EmulationThread, EmulatorCommand, GameFrame};
 use eframe::egui::load::SizedTexture;
 use eframe::egui::{menu, Color32, ColorImage, ImageSource, Key, RichText, TextureOptions};
 use eframe::epaint::ImageDelta;
 use eframe::{egui, CreationContext};
 use gibi::cpu::Registers;
+use gibi::framebuffer::access;
 use gibi::joypad::JoypadKeys;
-use gibi::{EmulatorEvent, Frame, GAMEBOY_HEIGHT, GAMEBOY_WIDTH};
+use gibi::{
+    framebuffer,
+    ppu::{LCD_HEIGHT, LCD_WIDTH},
+    EmulatorEvent,
+};
 use std::collections::HashMap;
 use std::sync::{mpsc, Arc, Mutex};
 use std::thread::JoinHandle;
@@ -15,8 +20,6 @@ const TEXTURE_OPTIONS: TextureOptions = TextureOptions {
     magnification: egui::TextureFilter::Nearest,
     minification: egui::TextureFilter::Nearest,
 };
-const WIDTH: usize = GAMEBOY_WIDTH as usize;
-const HEIGHT: usize = GAMEBOY_HEIGHT as usize;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 enum Panel {
@@ -28,9 +31,10 @@ enum Panel {
 }
 
 pub struct GameboyApp {
-    frame: Frame,
     tex: egui::TextureHandle,
     game_scale_factor: f32,
+
+    frame_reader: access::AccessR<GameFrame>,
 
     emulation_thread: Option<JoinHandle<()>>,
     command_tx: mpsc::SyncSender<EmulatorCommand>,
@@ -45,31 +49,30 @@ impl GameboyApp {
     pub fn new(cc: &CreationContext) -> Self {
         let tex = cc.egui_ctx.load_texture(
             "game-image",
-            ColorImage::new([WIDTH, HEIGHT], Color32::BLACK),
+            ColorImage::new([LCD_WIDTH, LCD_HEIGHT], Color32::BLACK),
             TEXTURE_OPTIONS,
         );
 
-        let frame = Arc::new(Mutex::new(vec![0x00; WIDTH * HEIGHT * 4]));
+        let (frame_reader, frame_writer) = framebuffer::buffers::triple::new::<GameFrame>();
 
         let (command_tx, command_rc) = mpsc::sync_channel(0);
         let (event_tx, event_rc) = mpsc::channel();
         let emulation_thread = {
-            let frame = Arc::clone(&frame);
             std::thread::Builder::new()
                 .name("emulation-thread".to_owned())
                 .spawn(move || {
                     log::info!("Spawned emulation thread");
-                    EmulationThread::new(Arc::clone(&frame), command_rc, event_tx).run();
+                    EmulationThread::new(frame_writer, command_rc, event_tx).run();
                     log::info!("Exiting emulation thread");
                 })
                 .expect("Failed to spawn emulation thread")
         };
 
         Self {
+            frame_reader,
             tex,
             game_scale_factor: 5.0,
             emulation_thread: Some(emulation_thread),
-            frame,
             command_tx,
             event_rc,
             cpu_registers: None,
@@ -304,9 +307,13 @@ impl eframe::App for GameboyApp {
         while let Ok(event) = self.event_rc.try_recv() {
             match event {
                 EmulatorEvent::CompletedFrame => {
-                    let locked_frame = self.frame.lock().unwrap();
-                    let framebuffer = locked_frame.as_slice();
-                    let image = ColorImage::from_rgba_unmultiplied([WIDTH, HEIGHT], framebuffer);
+                    // let locked_frame = self.frame.lock().unwrap();
+                    // let framebuffer = locked_frame.as_slice();
+
+                    let frame = self.frame_reader.get().read().data.as_slice();
+                    let frame_slice = unsafe { to_byte_slice(frame) };
+                    let image =
+                        ColorImage::from_rgba_unmultiplied([LCD_WIDTH, LCD_HEIGHT], frame_slice);
                     let delta = ImageDelta::full(image, TEXTURE_OPTIONS);
                     ctx.tex_manager().write().set(self.tex.id(), delta);
                 }
@@ -326,4 +333,9 @@ impl eframe::App for GameboyApp {
 
         true
     }
+}
+
+#[inline(always)]
+pub unsafe fn to_byte_slice<T>(data: &[T]) -> &[u8] {
+    std::slice::from_raw_parts(data.as_ptr() as *const u8, std::mem::size_of_val(data))
 }

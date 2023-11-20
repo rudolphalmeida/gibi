@@ -1,4 +1,4 @@
-use crate::textures::RGB;
+use crate::textures::RGBA;
 
 enum GameboyColorShade {
     White = 0,
@@ -19,12 +19,12 @@ impl GameboyColorShade {
     }
 }
 
-pub(crate) const RGBA_WHITE: RGB = RGB::new(0xE0, 0xF8, 0xD0);
-pub(crate) const RGBA_LIGHT_GRAY: RGB = RGB::new(0x88, 0xC0, 0x70);
-pub(crate) const RGBA_DARK_GRAY: RGB = RGB::new(0x34, 0x68, 0x56);
-pub(crate) const RGBA_BLACK: RGB = RGB::new(0x08, 0x18, 0x20);
+pub(crate) const RGBA_WHITE: RGBA = RGBA(0xE0, 0xF8, 0xD0, 0xFF);
+pub(crate) const RGBA_LIGHT_GRAY: RGBA = RGBA(0x88, 0xC0, 0x70, 0xFF);
+pub(crate) const RGBA_DARK_GRAY: RGBA = RGBA(0x34, 0x68, 0x56, 0xFF);
+pub(crate) const RGBA_BLACK: RGBA = RGBA(0x08, 0x18, 0x20, 0xFF);
 
-fn map_to_actual_color(shade: GameboyColorShade) -> RGB {
+fn map_to_actual_color(shade: GameboyColorShade) -> RGBA {
     match shade {
         GameboyColorShade::White => RGBA_WHITE,
         GameboyColorShade::LightGray => RGBA_LIGHT_GRAY,
@@ -33,7 +33,7 @@ fn map_to_actual_color(shade: GameboyColorShade) -> RGB {
     }
 }
 
-fn extract_actual_color_from_spec(spec: &[u8; 8], index: usize) -> RGB {
+fn extract_actual_color_from_spec(spec: &[u8; 8], index: usize) -> RGBA {
     let color_byte_1 = spec[index * 2];
     let color_byte_2 = spec[index * 2 + 1];
 
@@ -46,10 +46,11 @@ fn extract_actual_color_from_spec(spec: &[u8; 8], index: usize) -> RGB {
     let b = (color_byte_2 & 0b01111100) >> 2;
 
     // RGB555 to RGB888: https://stackoverflow.com/a/4409837/4681203
-    RGB::new(
+    RGBA::new(
         (r << 3) | (r >> 2),
         (g << 3) | (g >> 2),
         (b << 3) | (b >> 2),
+        0xFF,
     )
 }
 
@@ -70,7 +71,7 @@ impl Palette {
         Palette::CgbColor(palette)
     }
 
-    pub fn actual_color_from_index(&self, index: u8) -> RGB {
+    pub fn actual_color_from_index(&self, index: u8) -> RGBA {
         match index {
             0 => self.color0(),
             1 => self.color1(),
@@ -80,7 +81,7 @@ impl Palette {
         }
     }
 
-    pub fn color0(&self) -> RGB {
+    pub fn color0(&self) -> RGBA {
         match self {
             Palette::DmgGreyscale(value) => {
                 map_to_actual_color(GameboyColorShade::new(value & 0x03))
@@ -89,7 +90,7 @@ impl Palette {
         }
     }
 
-    pub fn color1(&self) -> RGB {
+    pub fn color1(&self) -> RGBA {
         match self {
             Palette::DmgGreyscale(value) => {
                 map_to_actual_color(GameboyColorShade::new((value & 0x0C) >> 2))
@@ -98,7 +99,7 @@ impl Palette {
         }
     }
 
-    pub fn color2(&self) -> RGB {
+    pub fn color2(&self) -> RGBA {
         match self {
             Palette::DmgGreyscale(value) => {
                 map_to_actual_color(GameboyColorShade::new((value & 0x30) >> 4))
@@ -107,7 +108,7 @@ impl Palette {
         }
     }
 
-    pub fn color3(&self) -> RGB {
+    pub fn color3(&self) -> RGBA {
         match self {
             Palette::DmgGreyscale(value) => {
                 map_to_actual_color(GameboyColorShade::new((value & 0xC0) >> 6))
