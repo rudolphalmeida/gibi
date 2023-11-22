@@ -12,7 +12,7 @@ use gibi::{
     EmulatorEvent,
 };
 use std::collections::HashMap;
-use std::sync::{mpsc, Arc, Mutex};
+use std::sync::mpsc;
 use std::thread::JoinHandle;
 
 // Nearest neighbor filtering for the nice pixelated look

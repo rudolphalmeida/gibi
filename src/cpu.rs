@@ -386,7 +386,6 @@ where
             0x40..=0x7F => self.bit_n_r8(prefixed_opcode),
             0x80..=0xBF => self.res_n_r8(prefixed_opcode),
             0xC0..=0xFF => self.set_n_r8(prefixed_opcode),
-            _ => {}
         };
     }
 
