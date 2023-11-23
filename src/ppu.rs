@@ -435,10 +435,14 @@ impl Ppu {
         } as usize;
 
         let window_x_start = if self.wx < 7 { 7 - self.wx } else { 0x00 } as usize;
+        let screen_x_start = self.wx.saturating_sub(7) as usize;
 
         let screen_y = self.ly as usize;
 
-        for (window_index_x, pixel) in self.frame.data[screen_y].iter_mut().enumerate() {
+        for (window_index_x, pixel) in self.frame.data[screen_y][screen_x_start..]
+            .iter_mut()
+            .enumerate()
+        {
             let window_x = window_x_start + window_index_x;
 
             let tile_x = window_x / TILE_WIDTH_PX;
