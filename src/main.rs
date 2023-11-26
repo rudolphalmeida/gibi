@@ -16,7 +16,7 @@ fn main() -> Result<(), eframe::Error> {
         ..Default::default()
     };
     eframe::run_native(
-        "GiBi: Gameboy Color Emulator",
+        "GiBi",
         options,
         Box::new(|cc| Box::<GameboyApp>::new(GameboyApp::new(cc))),
     )

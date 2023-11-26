@@ -264,6 +264,7 @@ impl GameboyApp {
                         self.game_scale_factor = 8.0;
                     }
                 });
+                egui::widgets::global_dark_light_mode_buttons(ui);
             });
         });
     }
