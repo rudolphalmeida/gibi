@@ -209,6 +209,7 @@ impl GameboyApp {
         menu::bar(ui, |ui| {
             ui.menu_button("File", |ui| {
                 if ui.button("Open").clicked() {
+                    // TODO: Stop running emulation if clicking
                     if let Some(path) = rfd::FileDialog::new().pick_file() {
                         match spawn(&path, ctx) {
                             Ok(comm_ctx) => self.comm_ctx = Some(comm_ctx),
@@ -217,9 +218,17 @@ impl GameboyApp {
                         self.recent_roms.push(path);
                     }
                 }
-                if ui.button("Open Recent").clicked() {
-                    log::error!("Not implemented Open Recent");
-                }
+                ui.menu_button("Open Recent" , |ui| {
+                    for path in &self.recent_roms {
+                        if (ui.button(path.file_name().unwrap().to_str().unwrap())).clicked() {
+                            // TODO: Stop running emulation if clicking
+                            match spawn(path, ctx) {
+                                Ok(comm_ctx) => self.comm_ctx = Some(comm_ctx),
+                                Err(err) => log::error!("Failed to load ROM fxxxxile: {:?}", err),
+                            }
+                        }
+                    }
+                });
                 if ui.button("Exit").clicked() {
                     self.send_message(EmulatorCommand::Exit);
                 }
