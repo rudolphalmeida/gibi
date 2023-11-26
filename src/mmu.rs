@@ -1,6 +1,6 @@
 use std::cell::RefCell;
 use std::rc::Rc;
-use std::sync::mpsc::Sender;
+
 
 use crate::apu::{Apu, SOUND_END, SOUND_START, WAVE_END, WAVE_START};
 use crate::cartridge::CGB_BOOT_ROM;
@@ -11,7 +11,7 @@ use crate::ppu::{
 };
 use crate::serial::{Serial, SERIAL_END, SERIAL_START};
 use crate::timer::{Timer, TIMER_END, TIMER_START};
-use crate::{EmulatorEvent, HardwareSupport, SystemState};
+use crate::{HardwareSupport, SystemState};
 
 use crate::memory::MemoryBus;
 use crate::{
@@ -99,7 +99,6 @@ impl Mmu {
         system_state: Rc<RefCell<SystemState>>,
         joypad: Rc<RefCell<Joypad>>,
         interrupts: Rc<RefCell<InterruptHandler>>,
-        event_tx: Sender<EmulatorEvent>,
     ) -> Self {
         let wram = [0x00; WRAM_BANK_SIZE * 8]; // 32KB
         let wram_bank = 0x1;
@@ -110,11 +109,7 @@ impl Mmu {
 
         let oam_dma = RefCell::new(None);
 
-        let ppu = RefCell::new(Ppu::new(
-            Rc::clone(&interrupts),
-            Rc::clone(&system_state),
-            event_tx,
-        ));
+        let ppu = RefCell::new(Ppu::new(Rc::clone(&interrupts), Rc::clone(&system_state)));
 
         let apu = RefCell::new(Apu::new());
 

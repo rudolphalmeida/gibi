@@ -1,14 +1,15 @@
 use std::path::PathBuf;
-use std::sync::mpsc::Sender;
+
 use std::{cell::RefCell, rc::Rc};
 use std::{fs, io};
 
 use crate::cartridge::init_mbc_from_rom;
+use crate::cpu::Registers;
 use crate::framebuffer::access;
 use crate::interrupts::InterruptHandler;
 use crate::joypad::{Joypad, JoypadKeys};
 use crate::{cpu::Cpu, mmu::Mmu, GameFrame};
-use crate::{EmulatorEvent, ExecutionState, HardwareSupport, HdmaState, SystemState};
+use crate::{ExecutionState, HardwareSupport, HdmaState, SystemState};
 
 const CYCLES_PER_FRAME: u64 = 17556;
 
@@ -18,11 +19,10 @@ pub struct Gameboy {
     cpu: Cpu<Mmu>,
 
     system_state: Rc<RefCell<SystemState>>,
-    event_tx: Sender<EmulatorEvent>,
 }
 
 impl Gameboy {
-    pub fn new(rom: Vec<u8>, ram: Option<Vec<u8>>, event_tx: Sender<EmulatorEvent>) -> Self {
+    pub fn new(rom: Vec<u8>, ram: Option<Vec<u8>>) -> Self {
         let cart = init_mbc_from_rom(rom, ram);
         let hardware_support = cart.hardware_supported();
 
@@ -53,7 +53,6 @@ impl Gameboy {
             Rc::clone(&system_state),
             Rc::clone(&joypad),
             Rc::clone(&interrupts),
-            event_tx.clone(),
         )));
         let cpu = Cpu::new(Rc::clone(&mmu), interrupts, Rc::clone(&system_state));
 
@@ -70,15 +69,12 @@ impl Gameboy {
             mmu,
             cpu,
             joypad,
-            event_tx,
         }
     }
 
-    pub fn send_debug_data(&self) {
-        let cpu_registers = self.cpu.regs;
-        self.event_tx
-            .send(EmulatorEvent::CpuRegisters(cpu_registers))
-            .unwrap();
+    // TODO: Extract out a debug info type
+    pub fn send_debug_data(&self) -> Registers {
+        self.cpu.regs
     }
 
     pub fn run_one_frame(&mut self) {
@@ -109,7 +105,7 @@ impl Gameboy {
         self.joypad.borrow_mut().keyup(key);
     }
 
-    pub fn save(&self, path: PathBuf) -> io::Result<String> {
+    pub fn save(&self, path: &PathBuf) -> io::Result<String> {
         if let Some(ram) = self.mmu.borrow().save_ram() {
             fs::write(path, ram).map(|_| "Save RAM to file".into())
         } else {

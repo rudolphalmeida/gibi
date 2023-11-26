@@ -1,13 +1,13 @@
 use std::cell::RefCell;
 use std::rc::Rc;
-use std::sync::mpsc::Sender;
+
 
 use crate::framebuffer::access;
 use crate::interrupts::{InterruptHandler, InterruptType};
 use crate::memory::Memory;
 use crate::palettes::Palette;
 use crate::textures::RGBA;
-use crate::{EmulatorEvent, GameFrame, SystemState};
+use crate::{GameFrame, SystemState};
 
 pub(crate) const VRAM_START: u16 = 0x8000;
 pub(crate) const VRAM_END: u16 = 0x9FFF;
@@ -123,8 +123,6 @@ pub(crate) struct Ppu {
     // Index in palette of each color that was used for background
     bg_color_indices: Vec<RenderedBackgroundPixel>,
 
-    event_tx: Sender<EmulatorEvent>,
-
     system_state: Rc<RefCell<SystemState>>,
 }
 
@@ -132,7 +130,6 @@ impl Ppu {
     pub fn new(
         interrupts: Rc<RefCell<InterruptHandler>>,
         system_state: Rc<RefCell<SystemState>>,
-        event_tx: Sender<EmulatorEvent>,
     ) -> Self {
         let mut stat: LcdStat = Default::default();
         stat.set_mode(LcdStatus::OamSearch);
@@ -161,7 +158,6 @@ impl Ppu {
             interrupts,
             frame: Default::default(),
             bg_color_indices: vec![Default::default(); LCD_WIDTH * LCD_HEIGHT],
-            event_tx,
             system_state,
         }
     }
@@ -208,7 +204,6 @@ impl Ppu {
                         self.interrupts
                             .borrow_mut()
                             .request_interrupt(InterruptType::Vblank);
-                        self.event_tx.send(EmulatorEvent::CompletedFrame).unwrap();
 
                         LcdStatus::Vblank
                     } else {
