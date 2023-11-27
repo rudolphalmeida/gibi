@@ -1326,11 +1326,17 @@ pub mod tests {
         let mmu = Rc::new(RefCell::new(FlatMmu::new(&test_case.initial.ram)));
         let interrupts = Rc::new(RefCell::new(InterruptHandler::default()));
         let system_state = Rc::new(RefCell::new(SystemState::default()));
-        let mut cpu = Cpu::new(mmu, interrupts, system_state);
+        let mut cpu = Cpu::new(Rc::clone(&mmu), interrupts, system_state);
         cpu.regs = Registers::from(test_case.initial.cpu);
         cpu.execute_opcode();
 
         assert_eq!(cpu.regs, test_case.r#final.cpu.into());
+        {
+            let mmu = mmu.borrow();
+            for RamState(address, data) in &test_case.r#final.ram {
+                assert_eq!(mmu.memory[*address as usize], *data);
+            }
+        }
     }
 
     macro_rules! test_opcode {
