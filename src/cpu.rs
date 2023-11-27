@@ -897,7 +897,7 @@ enum FlagRegisterMask {
     Carry = (1 << 4),
 }
 
-#[derive(Debug, Default, Clone, Copy)]
+#[derive(Debug, Default, Clone, Copy, Eq, PartialEq)]
 pub struct FlagRegister {
     pub zero: bool,
     pub negative: bool,
@@ -941,7 +941,7 @@ impl From<FlagRegister> for u8 {
     }
 }
 
-#[derive(Default, Clone, Copy)]
+#[derive(Default, Clone, Copy, Debug, Eq, PartialEq)]
 pub struct Registers {
     a: u8,
     pub f: FlagRegister,
@@ -1191,7 +1191,7 @@ pub mod tests {
         }
     }
 
-    #[derive(Deserialize, Debug)]
+    #[derive(Deserialize, Debug, Copy, Clone, Eq, PartialEq)]
     struct CpuState {
         #[serde(deserialize_with = "deserialize_number_from_string")]
         a: u8,
@@ -1215,6 +1215,23 @@ pub mod tests {
         sp: u16,
     }
 
+    impl From<CpuState> for Registers {
+        fn from(value: CpuState) -> Self {
+            Self {
+                a: value.a,
+                f: FlagRegister::from(value.f),
+                b: value.b,
+                c: value.c,
+                d: value.d,
+                e: value.e,
+                h: value.h,
+                l: value.l,
+                sp: value.sp,
+                pc: value.pc,
+            }
+        }
+    }
+
     #[derive(Deserialize, Debug)]
     struct RamState(
         #[serde(deserialize_with = "deserialize_number_from_string")] u16,
@@ -1222,7 +1239,7 @@ pub mod tests {
     );
 
     #[derive(Deserialize, Debug)]
-    struct SystemState {
+    struct MemoryState {
         cpu: CpuState,
         ram: Vec<RamState>,
     }
@@ -1238,8 +1255,8 @@ pub mod tests {
 
     struct OpcodeTestCase {
         name: String,
-        initial: SystemState,
-        r#final: SystemState,
+        initial: MemoryState,
+        r#final: MemoryState,
         cycles: Vec<CycleState>,
     }
 
@@ -1298,10 +1315,286 @@ pub mod tests {
         }
     }
 
-    #[test]
-    fn test_00() -> io::Result<()> {
-        let test_data = read_test_data(0x00)?;
-        println!("{:?}", test_data[0]);
-        Ok(())
+    fn run_test_case(test_case: &OpcodeTestCase) {
+        let mmu = Rc::new(RefCell::new(FlatMmu::new(&test_case.initial.ram)));
+        let interrupts = Rc::new(RefCell::new(InterruptHandler::default()));
+        let system_state = Rc::new(RefCell::new(SystemState::default()));
+        let mut cpu = Cpu::new(mmu, interrupts, system_state);
+        cpu.regs = Registers::from(test_case.initial.cpu);
+        cpu.execute_opcode();
+
+        assert_eq!(cpu.regs, test_case.r#final.cpu.into());
     }
+
+    macro_rules! test_opcode {
+        ($opcode: literal) => {
+            paste! {
+                #[test]
+                fn [<test_ $opcode>]() -> io::Result<()> {
+                    let test_data = read_test_data($opcode)?;
+                    for test_case in test_data {
+                        run_test_case(&test_case);
+                    }
+                    Ok(())
+                }
+            }
+        };
+    }
+
+    test_opcode!(0x00);
+    test_opcode!(0x01);
+    test_opcode!(0x02);
+    test_opcode!(0x03);
+    test_opcode!(0x04);
+    test_opcode!(0x05);
+    test_opcode!(0x06);
+    test_opcode!(0x07);
+    test_opcode!(0x08);
+    test_opcode!(0x09);
+    test_opcode!(0x0A);
+    test_opcode!(0x0B);
+    test_opcode!(0x0C);
+    test_opcode!(0x0D);
+    test_opcode!(0x0E);
+    test_opcode!(0x0F);
+    test_opcode!(0x10);
+    test_opcode!(0x11);
+    test_opcode!(0x12);
+    test_opcode!(0x13);
+    test_opcode!(0x14);
+    test_opcode!(0x15);
+    test_opcode!(0x16);
+    test_opcode!(0x17);
+    test_opcode!(0x18);
+    test_opcode!(0x19);
+    test_opcode!(0x1A);
+    test_opcode!(0x1B);
+    test_opcode!(0x1C);
+    test_opcode!(0x1D);
+    test_opcode!(0x1E);
+    test_opcode!(0x1F);
+    test_opcode!(0x20);
+    test_opcode!(0x21);
+    test_opcode!(0x22);
+    test_opcode!(0x23);
+    test_opcode!(0x24);
+    test_opcode!(0x25);
+    test_opcode!(0x26);
+    test_opcode!(0x27);
+    test_opcode!(0x28);
+    test_opcode!(0x29);
+    test_opcode!(0x2A);
+    test_opcode!(0x2B);
+    test_opcode!(0x2C);
+    test_opcode!(0x2D);
+    test_opcode!(0x2E);
+    test_opcode!(0x2F);
+    test_opcode!(0x30);
+    test_opcode!(0x31);
+    test_opcode!(0x32);
+    test_opcode!(0x33);
+    test_opcode!(0x34);
+    test_opcode!(0x35);
+    test_opcode!(0x36);
+    test_opcode!(0x37);
+    test_opcode!(0x38);
+    test_opcode!(0x39);
+    test_opcode!(0x3A);
+    test_opcode!(0x3B);
+    test_opcode!(0x3C);
+    test_opcode!(0x3D);
+    test_opcode!(0x3E);
+    test_opcode!(0x3F);
+    test_opcode!(0x40);
+    test_opcode!(0x41);
+    test_opcode!(0x42);
+    test_opcode!(0x43);
+    test_opcode!(0x44);
+    test_opcode!(0x45);
+    test_opcode!(0x46);
+    test_opcode!(0x47);
+    test_opcode!(0x48);
+    test_opcode!(0x49);
+    test_opcode!(0x4A);
+    test_opcode!(0x4B);
+    test_opcode!(0x4C);
+    test_opcode!(0x4D);
+    test_opcode!(0x4E);
+    test_opcode!(0x4F);
+    test_opcode!(0x50);
+    test_opcode!(0x51);
+    test_opcode!(0x52);
+    test_opcode!(0x53);
+    test_opcode!(0x54);
+    test_opcode!(0x55);
+    test_opcode!(0x56);
+    test_opcode!(0x57);
+    test_opcode!(0x58);
+    test_opcode!(0x59);
+    test_opcode!(0x5A);
+    test_opcode!(0x5B);
+    test_opcode!(0x5C);
+    test_opcode!(0x5D);
+    test_opcode!(0x5E);
+    test_opcode!(0x5F);
+    test_opcode!(0x60);
+    test_opcode!(0x61);
+    test_opcode!(0x62);
+    test_opcode!(0x63);
+    test_opcode!(0x64);
+    test_opcode!(0x65);
+    test_opcode!(0x66);
+    test_opcode!(0x67);
+    test_opcode!(0x68);
+    test_opcode!(0x69);
+    test_opcode!(0x6A);
+    test_opcode!(0x6B);
+    test_opcode!(0x6C);
+    test_opcode!(0x6D);
+    test_opcode!(0x6E);
+    test_opcode!(0x6F);
+    test_opcode!(0x70);
+    test_opcode!(0x71);
+    test_opcode!(0x72);
+    test_opcode!(0x73);
+    test_opcode!(0x74);
+    test_opcode!(0x75);
+    test_opcode!(0x76);
+    test_opcode!(0x77);
+    test_opcode!(0x78);
+    test_opcode!(0x79);
+    test_opcode!(0x7A);
+    test_opcode!(0x7B);
+    test_opcode!(0x7C);
+    test_opcode!(0x7D);
+    test_opcode!(0x7E);
+    test_opcode!(0x7F);
+    test_opcode!(0x80);
+    test_opcode!(0x81);
+    test_opcode!(0x82);
+    test_opcode!(0x83);
+    test_opcode!(0x84);
+    test_opcode!(0x85);
+    test_opcode!(0x86);
+    test_opcode!(0x87);
+    test_opcode!(0x88);
+    test_opcode!(0x89);
+    test_opcode!(0x8A);
+    test_opcode!(0x8B);
+    test_opcode!(0x8C);
+    test_opcode!(0x8D);
+    test_opcode!(0x8E);
+    test_opcode!(0x8F);
+    test_opcode!(0x90);
+    test_opcode!(0x91);
+    test_opcode!(0x92);
+    test_opcode!(0x93);
+    test_opcode!(0x94);
+    test_opcode!(0x95);
+    test_opcode!(0x96);
+    test_opcode!(0x97);
+    test_opcode!(0x98);
+    test_opcode!(0x99);
+    test_opcode!(0x9A);
+    test_opcode!(0x9B);
+    test_opcode!(0x9C);
+    test_opcode!(0x9D);
+    test_opcode!(0x9E);
+    test_opcode!(0x9F);
+    test_opcode!(0xA0);
+    test_opcode!(0xA1);
+    test_opcode!(0xA2);
+    test_opcode!(0xA3);
+    test_opcode!(0xA4);
+    test_opcode!(0xA5);
+    test_opcode!(0xA6);
+    test_opcode!(0xA7);
+    test_opcode!(0xA8);
+    test_opcode!(0xA9);
+    test_opcode!(0xAA);
+    test_opcode!(0xAB);
+    test_opcode!(0xAC);
+    test_opcode!(0xAD);
+    test_opcode!(0xAE);
+    test_opcode!(0xAF);
+    test_opcode!(0xB0);
+    test_opcode!(0xB1);
+    test_opcode!(0xB2);
+    test_opcode!(0xB3);
+    test_opcode!(0xB4);
+    test_opcode!(0xB5);
+    test_opcode!(0xB6);
+    test_opcode!(0xB7);
+    test_opcode!(0xB8);
+    test_opcode!(0xB9);
+    test_opcode!(0xBA);
+    test_opcode!(0xBB);
+    test_opcode!(0xBC);
+    test_opcode!(0xBD);
+    test_opcode!(0xBE);
+    test_opcode!(0xBF);
+    test_opcode!(0xC0);
+    test_opcode!(0xC1);
+    test_opcode!(0xC2);
+    test_opcode!(0xC3);
+    test_opcode!(0xC4);
+    test_opcode!(0xC5);
+    test_opcode!(0xC6);
+    test_opcode!(0xC7);
+    test_opcode!(0xC8);
+    test_opcode!(0xC9);
+    test_opcode!(0xCA);
+    test_opcode!(0xCB);
+    test_opcode!(0xCC);
+    test_opcode!(0xCD);
+    test_opcode!(0xCE);
+    test_opcode!(0xCF);
+    test_opcode!(0xD0);
+    test_opcode!(0xD1);
+    test_opcode!(0xD2);
+    test_opcode!(0xD3);
+    test_opcode!(0xD4);
+    test_opcode!(0xD5);
+    test_opcode!(0xD6);
+    test_opcode!(0xD7);
+    test_opcode!(0xD8);
+    test_opcode!(0xD9);
+    test_opcode!(0xDA);
+    test_opcode!(0xDB);
+    test_opcode!(0xDC);
+    test_opcode!(0xDD);
+    test_opcode!(0xDE);
+    test_opcode!(0xDF);
+    test_opcode!(0xE0);
+    test_opcode!(0xE1);
+    test_opcode!(0xE2);
+    test_opcode!(0xE3);
+    test_opcode!(0xE4);
+    test_opcode!(0xE5);
+    test_opcode!(0xE6);
+    test_opcode!(0xE7);
+    test_opcode!(0xE8);
+    test_opcode!(0xE9);
+    test_opcode!(0xEA);
+    test_opcode!(0xEB);
+    test_opcode!(0xEC);
+    test_opcode!(0xED);
+    test_opcode!(0xEE);
+    test_opcode!(0xEF);
+    test_opcode!(0xF0);
+    test_opcode!(0xF1);
+    test_opcode!(0xF2);
+    test_opcode!(0xF3);
+    test_opcode!(0xF4);
+    test_opcode!(0xF5);
+    test_opcode!(0xF6);
+    test_opcode!(0xF7);
+    test_opcode!(0xF8);
+    test_opcode!(0xF9);
+    test_opcode!(0xFA);
+    test_opcode!(0xFB);
+    test_opcode!(0xFC);
+    test_opcode!(0xFD);
+    test_opcode!(0xFE);
+    test_opcode!(0xFF);
 }

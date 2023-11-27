@@ -29,20 +29,23 @@ pub enum EmulatorEvent {
     CpuRegisters(Registers),
 }
 
-#[derive(Debug, Copy, Clone, PartialEq)]
+#[derive(Debug, Copy, Clone, PartialEq, Default)]
 pub(crate) enum HardwareSupport {
+    #[default]
     CgbOnly,
     DmgCgb,
     DmgCompat,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
 enum ExecutionState {
+    #[default]
     ExecutingProgram,
     PreparingSpeedSwitch,
     Halted,
 }
 
+#[derive(Default, Debug, Copy, Clone)]
 struct HdmaState {
     source_addr: u16, // Built from HDMA1, HDMA2
     dest_addr: u16,   // Built from HDMA3, HDMA4
@@ -79,6 +82,7 @@ impl HdmaState {
     }
 }
 
+#[derive(Debug, Copy, Clone, Default)]
 struct SystemState {
     execution_state: ExecutionState,
     /// Hardware supported by current cartridge
