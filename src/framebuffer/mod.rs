@@ -1,5 +1,8 @@
 use crate::textures::TextureInfo;
 
+// TODO: Implement this module for your own or find a library to do it
+//       This is copied from https://github.com/Kim-Dewelski/bitwolf-archived
+
 pub mod access;
 pub mod buffers;
 
