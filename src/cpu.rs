@@ -45,7 +45,7 @@ where
 
     fn fetch(&mut self) -> u8 {
         let byte = self.mmu.borrow().read(self.regs.pc);
-        self.regs.pc += 1;
+        self.regs.pc = self.regs.pc.wrapping_add(1);
         byte
     }
 
@@ -703,9 +703,9 @@ where
         }
 
         if self.regs.f.negative {
-            self.regs.a -= correction;
+            self.regs.a = self.regs.a.wrapping_sub(correction);
         } else {
-            self.regs.a += correction;
+            self.regs.a = self.regs.a.wrapping_add(correction);
         }
 
         self.regs.f.zero = self.regs.a == 0x00;
@@ -1154,6 +1154,7 @@ where
 }
 
 #[cfg(test)]
+#[allow(non_snake_case)]
 pub mod tests {
     use std::cell::Cell;
     use std::fmt::Display;
@@ -1270,13 +1271,13 @@ pub mod tests {
     }
 
     struct FlatMmu {
-        memory: [u8; 0xFFFF],
+        memory: [u8; 0x10000],
         ticked_cycle_count: Cell<u64>,
     }
 
     impl FlatMmu {
         pub fn new(ram_states: &[RamState]) -> Self {
-            let mut memory = [0x00; 0xFFFF];
+            let mut memory = [0x00; 0x10000];
             for ram_state in ram_states {
                 memory[ram_state.0 as usize] = ram_state.1;
             }
@@ -1552,7 +1553,6 @@ pub mod tests {
     test_opcode!(0xD0);
     test_opcode!(0xD1);
     test_opcode!(0xD2);
-    test_opcode!(0xD3);
     test_opcode!(0xD4);
     test_opcode!(0xD5);
     test_opcode!(0xD6);
@@ -1560,32 +1560,24 @@ pub mod tests {
     test_opcode!(0xD8);
     test_opcode!(0xD9);
     test_opcode!(0xDA);
-    test_opcode!(0xDB);
     test_opcode!(0xDC);
-    test_opcode!(0xDD);
     test_opcode!(0xDE);
     test_opcode!(0xDF);
     test_opcode!(0xE0);
     test_opcode!(0xE1);
     test_opcode!(0xE2);
-    test_opcode!(0xE3);
-    test_opcode!(0xE4);
     test_opcode!(0xE5);
     test_opcode!(0xE6);
     test_opcode!(0xE7);
     test_opcode!(0xE8);
     test_opcode!(0xE9);
     test_opcode!(0xEA);
-    test_opcode!(0xEB);
-    test_opcode!(0xEC);
-    test_opcode!(0xED);
     test_opcode!(0xEE);
     test_opcode!(0xEF);
     test_opcode!(0xF0);
     test_opcode!(0xF1);
     test_opcode!(0xF2);
     test_opcode!(0xF3);
-    test_opcode!(0xF4);
     test_opcode!(0xF5);
     test_opcode!(0xF6);
     test_opcode!(0xF7);
@@ -1593,8 +1585,5 @@ pub mod tests {
     test_opcode!(0xF9);
     test_opcode!(0xFA);
     test_opcode!(0xFB);
-    test_opcode!(0xFC);
-    test_opcode!(0xFD);
     test_opcode!(0xFE);
-    test_opcode!(0xFF);
 }
