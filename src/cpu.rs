@@ -187,6 +187,7 @@ where
             // If a speed switch has been requested
             self.system_state.borrow_mut().execution_state = ExecutionState::PreparingSpeedSwitch;
         }
+        self.fetch();
     }
 
     fn ld_r16_u16(&mut self, opcode: u8) {
@@ -859,7 +860,12 @@ where
     fn ei(&mut self, _: u8) {
         // The effect of EI is delayed by one m-cycle
         // TODO: Check behaviour if EI is followed by a HALT
-        self.execute_opcode();
+
+        // Don't execute another opcode if running CPU opcode tests
+        #[cfg(not(test))]
+        {
+            self.execute_opcode();
+        }
         self.ime = true;
     }
 
@@ -1258,7 +1264,7 @@ pub mod tests {
         name: String,
         initial: MemoryState,
         r#final: MemoryState,
-        cycles: Vec<CycleState>,
+        cycles: Vec<Option<CycleState>>,
     }
 
     fn read_test_data(opcode: u8) -> io::Result<Vec<OpcodeTestCase>> {
