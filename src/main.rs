@@ -9,9 +9,7 @@ fn main() -> Result<(), eframe::Error> {
     env_logger::init();
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default().with_inner_size([1240.0, 760.0]),
-        // TODO: This makes the emulator run at the frame rate of the monitor on
-        //       which the window is. Change this to `false` and make the emulation
-        //       sync to audio or use a timer
+        // TODO: Separate framerate from monitor
         vsync: true,
         ..Default::default()
     };

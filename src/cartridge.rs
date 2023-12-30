@@ -35,8 +35,8 @@ pub(crate) trait Cartridge: Memory + Mbc + Savable {
 pub(crate) fn init_mbc_from_rom(rom: Vec<u8>, ram: Option<Vec<u8>>) -> Box<dyn Cartridge> {
     match rom[CARTRIDGE_TYPE_ADDRESS as usize] {
         0x00 => Box::new(NoMbc::new(rom)),
-        x @ (0x01 | 0x02 | 0x03) => Box::new(Mbc1::new(rom, ram, x == 0x03)),
-        x @ (0x19 | 0x1A | 0x1B | 0x1C | 0x1D | 0x1E) => Box::new(Mbc5::new(
+        x @ (0x01..=0x03) => Box::new(Mbc1::new(rom, ram, x == 0x03)),
+        x @ (0x19..=0x1E) => Box::new(Mbc5::new(
             rom,
             ram,
             x == 0x1B || x == 0x1E,
