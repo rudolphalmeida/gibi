@@ -387,6 +387,7 @@ where
             0x40..=0x7F => self.bit_n_r8(prefixed_opcode),
             0x80..=0xBF => self.res_n_r8(prefixed_opcode),
             0xC0..=0xFF => self.set_n_r8(prefixed_opcode),
+            _ => {}
         };
     }
 
@@ -1251,7 +1252,7 @@ pub mod tests {
         ram: Vec<RamState>,
     }
 
-    #[derive(Deserialize, Debug)]
+    #[derive(Deserialize, Debug, Clone)]
     struct CycleState(
         #[serde(deserialize_with = "deserialize_number_from_string")] u16,
         #[serde(deserialize_with = "deserialize_number_from_string")] u8,
@@ -1276,13 +1277,14 @@ pub mod tests {
         Ok(deserialized_test_data)
     }
 
-    struct FlatMmu {
+    struct FlatMmu<'a> {
         memory: [u8; 0x10000],
         ticked_cycle_count: Cell<u64>,
+        expected_cycles: &'a [Option<CycleState>],
     }
 
-    impl FlatMmu {
-        pub fn new(ram_states: &[RamState]) -> Self {
+    impl<'a> FlatMmu<'a> {
+        pub fn new(ram_states: &[RamState], expected_cycles: &'a [Option<CycleState>]) -> Self {
             let mut memory = [0x00; 0x10000];
             for ram_state in ram_states {
                 memory[ram_state.0 as usize] = ram_state.1;
@@ -1291,23 +1293,36 @@ pub mod tests {
             Self {
                 memory,
                 ticked_cycle_count: Cell::new(0),
+                expected_cycles
             }
         }
     }
 
-    impl Memory for FlatMmu {
+    impl Memory for FlatMmu<'_> {
         fn read(&self, address: u16) -> u8 {
+            let expected_cycle = self.expected_cycles[self.ticked_cycle_count.get() as usize].clone().unwrap();
+            assert_eq!(expected_cycle.0, address);
+            assert_eq!(&expected_cycle.2, "read");
+
             self.tick();
-            self.raw_read(address)
+            let data = self.raw_read(address);
+            assert_eq!(expected_cycle.1, data);
+
+            data
         }
 
         fn write(&mut self, address: u16, data: u8) {
+            let expected_cycle = self.expected_cycles[self.ticked_cycle_count.get() as usize].clone().unwrap();
+            assert_eq!(expected_cycle.0, address);
+            assert_eq!(expected_cycle.1, data);
+            assert_eq!(&expected_cycle.2, "write");
+
             self.tick();
             self.raw_write(address, data);
         }
     }
 
-    impl MemoryBus for FlatMmu {
+    impl MemoryBus for FlatMmu<'_> {
         fn raw_read(&self, address: u16) -> u8 {
             self.memory[address as usize]
         }
@@ -1323,7 +1338,7 @@ pub mod tests {
     }
 
     fn run_test_case(test_case: &OpcodeTestCase) {
-        let mmu = Rc::new(RefCell::new(FlatMmu::new(&test_case.initial.ram)));
+        let mmu = Rc::new(RefCell::new(FlatMmu::new(&test_case.initial.ram, &test_case.cycles)));
         let interrupts = Rc::new(RefCell::new(InterruptHandler::default()));
         let system_state = Rc::new(RefCell::new(SystemState::default()));
         let mut cpu = Cpu::new(Rc::clone(&mmu), interrupts, system_state);
