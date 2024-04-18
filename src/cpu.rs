@@ -5,13 +5,12 @@ use paste::paste;
 use crate::interrupts::{
     InterruptHandler, InterruptType, INTERRUPT_ENABLE_ADDRESS, INTERRUPT_FLAG_ADDRESS,
 };
-use crate::memory::MemoryBus;
+use crate::memory::SystemBus;
 use crate::{ExecutionState, SystemState};
 
-pub(crate) struct Cpu<BusType: MemoryBus> {
+pub(crate) struct Cpu {
     system_state: Rc<RefCell<SystemState>>,
 
-    mmu: Rc<RefCell<BusType>>,
     pub(crate) regs: Registers,
 
     ime: bool,
@@ -20,12 +19,8 @@ pub(crate) struct Cpu<BusType: MemoryBus> {
     previous_execution_state: Option<ExecutionState>,
 }
 
-impl<BusType> Cpu<BusType>
-where
-    BusType: MemoryBus,
-{
+impl Cpu {
     pub fn new(
-        mmu: Rc<RefCell<BusType>>,
         interrupts: Rc<RefCell<InterruptHandler>>,
         system_state: Rc<RefCell<SystemState>>,
     ) -> Self {
@@ -35,7 +30,6 @@ where
         log::debug!("Initialized CPU for CGB");
         Cpu {
             system_state,
-            mmu,
             regs,
             ime,
             interrupts,
@@ -43,40 +37,40 @@ where
         }
     }
 
-    fn fetch(&mut self) -> u8 {
-        let byte = self.mmu.borrow().read(self.regs.pc);
+    fn fetch<BusType: SystemBus>(&mut self, mmu: &mut BusType) -> u8 {
+        let byte = mmu.read(self.regs.pc);
         self.regs.pc = self.regs.pc.wrapping_add(1);
         byte
     }
 
-    pub fn execute(&mut self) {
-        if self.check_for_pending_interrupts() {
-            self.handle_interrupts();
+    pub fn execute<BusType: SystemBus>(&mut self, mmu: &mut BusType) {
+        if self.check_for_pending_interrupts(mmu) {
+            self.handle_interrupts(mmu);
         }
 
         let execution_state = self.system_state.borrow().execution_state;
         match execution_state {
               ExecutionState::Halted                   // CPU does not execute when halted
             | ExecutionState::PreparingSpeedSwitch     // switching speed
-            => self.mmu.borrow().tick(),
-            ExecutionState::ExecutingProgram => self.execute_opcode(),
+            => mmu.tick(),
+            ExecutionState::ExecutingProgram => self.execute_opcode(mmu),
         }
     }
 
-    fn check_for_pending_interrupts(&self) -> bool {
-        let intf = self.mmu.borrow().raw_read(INTERRUPT_FLAG_ADDRESS);
-        let inte = self.mmu.borrow().raw_read(INTERRUPT_ENABLE_ADDRESS);
+    fn check_for_pending_interrupts<BusType: SystemBus>(&self, mmu: &mut BusType) -> bool {
+        let intf = mmu.unticked_read(INTERRUPT_FLAG_ADDRESS);
+        let inte = mmu.unticked_read(INTERRUPT_ENABLE_ADDRESS);
 
         let ii = intf & inte;
         ii != 0x00
     }
 
     /// CPU Interrupt Handler. Should take 5 m-cycles
-    fn handle_interrupts(&mut self) {
+    fn handle_interrupts<BusType: SystemBus>(&mut self, mmu: &mut BusType) {
         // Cycle 1
-        let intf = self.mmu.borrow().read(INTERRUPT_FLAG_ADDRESS);
+        let intf = mmu.read(INTERRUPT_FLAG_ADDRESS);
         // Cycle 2
-        let inte = self.mmu.borrow().read(INTERRUPT_ENABLE_ADDRESS);
+        let inte = mmu.read(INTERRUPT_ENABLE_ADDRESS);
 
         let ii = intf & inte;
         if ii == 0x00 {
@@ -105,64 +99,62 @@ where
         let [upper, lower] = self.regs.pc.to_be_bytes();
         self.regs.sp = self.regs.sp.wrapping_sub(1);
         // Cycle 3
-        self.mmu.borrow_mut().write(self.regs.sp, upper);
+        mmu.write(self.regs.sp, upper);
         self.regs.sp = self.regs.sp.wrapping_sub(1);
         // Cycle 4
-        self.mmu.borrow_mut().write(self.regs.sp, lower);
+        mmu.write(self.regs.sp, lower);
 
         // Jump to interrupt handler
         self.regs.pc = interrupt.vector();
-        self.mmu.borrow().tick(); // The PC set takes another m-cycle - Cycle 5
+        mmu.tick(); // The PC set takes another m-cycle - Cycle 5
     }
 
-    fn execute_opcode(&mut self) {
-        // self.print_debug_log();
-
-        let opcode_byte = self.fetch();
+    fn execute_opcode<BusType: SystemBus>(&mut self, mmu: &mut BusType) {
+        let opcode_byte = self.fetch(mmu);
 
         match opcode_byte {
             0x00 => {} // NOP
-            0x10 => self.stop(),
-            0x01 | 0x11 | 0x21 | 0x31 => self.ld_r16_u16(opcode_byte),
-            0x80..=0xBF => self.alu_a_r8(opcode_byte),
-            0xC6 | 0xD6 | 0xE6 | 0xF6 | 0xCE | 0xDE | 0xEE | 0xFE => self.alu_a_u8(opcode_byte),
-            0x02 | 0x12 | 0x22 | 0x32 => self.ld_r16_a(opcode_byte),
-            0xCB => self.cb_prefixed_opcodes(opcode_byte),
-            0x20 | 0x30 | 0x28 | 0x38 => self.jr_cc_i8(opcode_byte),
-            0x18 => self.jr_i8(opcode_byte),
-            0x06 | 0x16 | 0x26 | 0x36 | 0x0E | 0x1E | 0x2E | 0x3E => self.ld_r8_u8(opcode_byte),
-            0x04 | 0x14 | 0x24 | 0x34 | 0x0C | 0x1C | 0x2C | 0x3C => self.inc_r8(opcode_byte),
-            0x05 | 0x15 | 0x25 | 0x35 | 0x0D | 0x1D | 0x2D | 0x3D => self.dec_r8(opcode_byte),
+            0x10 => self.stop(mmu),
+            0x01 | 0x11 | 0x21 | 0x31 => self.ld_r16_u16(opcode_byte, mmu),
+            0x80..=0xBF => self.alu_a_r8(opcode_byte, mmu),
+            0xC6 | 0xD6 | 0xE6 | 0xF6 | 0xCE | 0xDE | 0xEE | 0xFE => self.alu_a_u8(opcode_byte, mmu),
+            0x02 | 0x12 | 0x22 | 0x32 => self.ld_r16_a(opcode_byte, mmu),
+            0xCB => self.cb_prefixed_opcodes(opcode_byte, mmu),
+            0x20 | 0x30 | 0x28 | 0x38 => self.jr_cc_i8(opcode_byte, mmu),
+            0x18 => self.jr_i8(opcode_byte, mmu),
+            0x06 | 0x16 | 0x26 | 0x36 | 0x0E | 0x1E | 0x2E | 0x3E => self.ld_r8_u8(opcode_byte, mmu),
+            0x04 | 0x14 | 0x24 | 0x34 | 0x0C | 0x1C | 0x2C | 0x3C => self.inc_r8(opcode_byte, mmu),
+            0x05 | 0x15 | 0x25 | 0x35 | 0x0D | 0x1D | 0x2D | 0x3D => self.dec_r8(opcode_byte, mmu),
             0x76 => self.halt(opcode_byte),
-            0x40..=0x7F => self.ld_r8_r8(opcode_byte),
-            0xE0 => self.ld_ff00_u8_a(opcode_byte),
-            0xE2 => self.ld_ff00_c_a(opcode_byte),
-            0xF0 => self.ld_a_ff00_u8(opcode_byte),
-            0xF2 => self.ld_a_ff00_c(opcode_byte),
-            0x0A | 0x1A | 0x2A | 0x3A => self.ld_a_r16(opcode_byte),
-            0xCD => self.call_u16(opcode_byte),
-            0xC4 | 0xD4 | 0xCC | 0xDC => self.call_cc_u16(opcode_byte),
-            0xC5 | 0xD5 | 0xE5 | 0xF5 => self.push_r16(opcode_byte),
-            0xC1 | 0xD1 | 0xE1 | 0xF1 => self.pop_r16(opcode_byte),
+            0x40..=0x7F => self.ld_r8_r8(opcode_byte, mmu),
+            0xE0 => self.ld_ff00_u8_a(opcode_byte, mmu),
+            0xE2 => self.ld_ff00_c_a(opcode_byte, mmu),
+            0xF0 => self.ld_a_ff00_u8(opcode_byte, mmu),
+            0xF2 => self.ld_a_ff00_c(opcode_byte, mmu),
+            0x0A | 0x1A | 0x2A | 0x3A => self.ld_a_r16(opcode_byte, mmu),
+            0xCD => self.call_u16(opcode_byte, mmu),
+            0xC4 | 0xD4 | 0xCC | 0xDC => self.call_cc_u16(opcode_byte, mmu),
+            0xC5 | 0xD5 | 0xE5 | 0xF5 => self.push_r16(opcode_byte, mmu),
+            0xC1 | 0xD1 | 0xE1 | 0xF1 => self.pop_r16(opcode_byte, mmu),
             0x07 | 0x17 | 0x27 | 0x37 | 0x0F | 0x1F | 0x2F | 0x3F => self.flag_ops(opcode_byte),
             0x03 | 0x13 | 0x23 | 0x33 => self.inc_r16(opcode_byte),
             0x0B | 0x1B | 0x2B | 0x3B => self.dec_r16(opcode_byte),
-            0x09 | 0x19 | 0x29 | 0x39 => self.add_hl_r16(opcode_byte),
-            0xC9 => self.ret(opcode_byte),
-            0xD9 => self.reti(opcode_byte),
-            0xC0 | 0xD0 | 0xC8 | 0xD8 => self.ret_cc(opcode_byte),
-            0xEA => self.ld_u16_a(opcode_byte),
-            0xFA => self.ld_a_u16(opcode_byte),
-            0xC3 => self.jp_u16(opcode_byte),
-            0xC2 | 0xD2 | 0xCA | 0xDA => self.jp_cc_u16(opcode_byte),
+            0x09 | 0x19 | 0x29 | 0x39 => self.add_hl_r16(opcode_byte, mmu),
+            0xC9 => self.ret(opcode_byte, mmu),
+            0xD9 => self.reti(opcode_byte, mmu),
+            0xC0 | 0xD0 | 0xC8 | 0xD8 => self.ret_cc(opcode_byte, mmu),
+            0xEA => self.ld_u16_a(opcode_byte, mmu),
+            0xFA => self.ld_a_u16(opcode_byte, mmu),
+            0xC3 => self.jp_u16(opcode_byte, mmu),
+            0xC2 | 0xD2 | 0xCA | 0xDA => self.jp_cc_u16(opcode_byte, mmu),
             0xF3 => self.di(opcode_byte),
             0xE9 => self.jp_hl(opcode_byte),
-            0xE8 => self.add_sp_i8(opcode_byte),
-            0xF8 => self.ld_hl_sp_i8(opcode_byte),
-            0xF9 => self.ld_sp_hl(opcode_byte),
-            0xFB => self.ei(opcode_byte),
-            0x08 => self.ld_u16_sp(opcode_byte),
-            0xC7 | 0xD7 | 0xE7 | 0xF7 | 0xCF | 0xDF | 0xEF | 0xFF => self.rst(opcode_byte),
+            0xE8 => self.add_sp_i8(opcode_byte, mmu),
+            0xF8 => self.ld_hl_sp_i8(opcode_byte, mmu),
+            0xF9 => self.ld_sp_hl(opcode_byte, mmu),
+            0xFB => self.ei(opcode_byte, mmu),
+            0x08 => self.ld_u16_sp(opcode_byte, mmu),
+            0xC7 | 0xD7 | 0xE7 | 0xF7 | 0xCF | 0xDF | 0xEF | 0xFF => self.rst(opcode_byte, mmu),
             _ => panic!(
                 "Unimplemented or illegal opcode {:#04X} at PC: {:#06X}",
                 opcode_byte,
@@ -171,39 +163,29 @@ where
         };
     }
 
-    fn print_debug_log(&self) {
-        let pc = self.regs.pc;
-        let byte_0 = self.mmu.borrow().raw_read(pc);
-        let byte_1 = self.mmu.borrow().raw_read(pc + 1);
-        let byte_2 = self.mmu.borrow().raw_read(pc + 2);
-        let byte_3 = self.mmu.borrow().raw_read(pc + 3);
-        println!("A: {:02X} F: {:02X} B: {:02X} C: {:02X} D: {:02X} E: {:02X} H: {:02X} L: {:02X} SP: {:04X} PC: 00:{:04X} ({:02X} {:02X} {:02X} {:02X})", 
-        self.regs.a, u8::from(self.regs.f), self.regs.b, self.regs.c, self.regs.d, self.regs.e, self.regs.h, self.regs.l, self.regs.sp, self.regs.pc, byte_0, byte_1, byte_2, byte_3);
-    }
-
     // Opcode Implementations
-    fn stop(&mut self) {
+    fn stop<BusType: SystemBus>(&mut self, mmu: &mut BusType) {
         if self.system_state.borrow().key1 & 0b1 == 0b1 {
             // If a speed switch has been requested
             self.system_state.borrow_mut().execution_state = ExecutionState::PreparingSpeedSwitch;
         }
-        self.fetch();
+        self.fetch(mmu);
     }
 
-    fn ld_r16_u16(&mut self, opcode: u8) {
-        let lower = self.fetch();
-        let upper = self.fetch();
+    fn ld_r16_u16<BusType: SystemBus>(&mut self, opcode: u8, mmu: &mut BusType) {
+        let lower = self.fetch(mmu);
+        let upper = self.fetch(mmu);
 
         let b54 = (opcode & 0x30) >> 4;
         let value = u16::from_be_bytes([upper, lower]);
         WordRegister::for_group1(b54, self).set(value);
     }
 
-    fn alu_a_r8(&mut self, opcode: u8) {
+    fn alu_a_r8<BusType: SystemBus>(&mut self, opcode: u8, mmu: &mut BusType) {
         let b543 = (opcode & 0x38) >> 3;
         let b321 = opcode & 0x07;
 
-        let operand = ByteRegister::for_r8(b321, self).get();
+        let operand = ByteRegister::for_r8(b321, self).get(mmu);
 
         match b543 {
             0 => self.add_a(operand),
@@ -218,9 +200,9 @@ where
         };
     }
 
-    fn alu_a_u8(&mut self, opcode: u8) {
+    fn alu_a_u8<BusType: SystemBus>(&mut self, opcode: u8, mmu: &mut BusType) {
         let b543 = (opcode & 0x38) >> 3;
-        let operand = self.fetch();
+        let operand = self.fetch(mmu);
 
         match b543 {
             0 => self.add_a(operand),
@@ -321,10 +303,10 @@ where
         self.regs.f.carry = borrow;
     }
 
-    fn ld_r16_a(&mut self, opcode: u8) {
+    fn ld_r16_a<BusType: SystemBus>(&mut self, opcode: u8, mmu: &mut BusType) {
         let b54 = (opcode & 0x30) >> 4;
         let address = WordRegister::for_group2(b54, self).get();
-        self.mmu.borrow_mut().write(address, self.regs.a);
+        mmu.write(address, self.regs.a);
 
         // Increment or decrement HL if the opcode requires it
         if b54 == 2 {
@@ -334,10 +316,10 @@ where
         }
     }
 
-    fn ld_a_r16(&mut self, opcode: u8) {
+    fn ld_a_r16<BusType: SystemBus>(&mut self, opcode: u8, mmu: &mut BusType) {
         let b54 = (opcode & 0x30) >> 4;
         let address = WordRegister::for_group2(b54, self).get();
-        self.regs.a = self.mmu.borrow().read(address);
+        self.regs.a = mmu.read(address);
 
         // Increment or decrement HL if the opcode requires it
         if b54 == 2 {
@@ -357,92 +339,92 @@ where
         }
     }
 
-    fn jr_cc_i8(&mut self, opcode: u8) {
+    fn jr_cc_i8<BusType: SystemBus>(&mut self, opcode: u8, mmu: &mut BusType) {
         let b43 = (opcode & 0x18) >> 3;
-        let offset = self.fetch() as i8 as i16 as u16;
+        let offset = self.fetch(mmu) as i8 as i16 as u16;
 
         if self.check_condition(b43) {
             self.regs.pc = self.regs.pc.wrapping_add(offset);
-            self.mmu.borrow().tick();
+            mmu.tick();
         }
     }
 
-    fn jr_i8(&mut self, _: u8) {
-        let offset = self.fetch() as i8 as i16 as u16;
+    fn jr_i8<BusType: SystemBus>(&mut self, _: u8, mmu: &mut BusType) {
+        let offset = self.fetch(mmu) as i8 as i16 as u16;
         self.regs.pc = self.regs.pc.wrapping_add(offset);
-        self.mmu.borrow().tick();
+        mmu.tick();
     }
 
-    fn ld_r8_u8(&mut self, opcode: u8) {
+    fn ld_r8_u8<BusType: SystemBus>(&mut self, opcode: u8, mmu: &mut BusType) {
         let b543 = (opcode & 0x38) >> 3;
-        let operand = self.fetch();
-        ByteRegister::for_r8(b543, self).set(operand);
+        let operand = self.fetch(mmu);
+        ByteRegister::for_r8(b543, self).set(operand, mmu);
     }
 
-    fn cb_prefixed_opcodes(&mut self, _: u8) {
-        let prefixed_opcode = self.fetch();
+    fn cb_prefixed_opcodes<BusType: SystemBus>(&mut self, _: u8, mmu: &mut BusType) {
+        let prefixed_opcode = self.fetch(mmu);
 
         match prefixed_opcode {
-            0x00..=0x3F => self.rotate_and_swap_r8(prefixed_opcode),
-            0x40..=0x7F => self.bit_n_r8(prefixed_opcode),
-            0x80..=0xBF => self.res_n_r8(prefixed_opcode),
-            0xC0..=0xFF => self.set_n_r8(prefixed_opcode),
+            0x00..=0x3F => self.rotate_and_swap_r8(prefixed_opcode, mmu),
+            0x40..=0x7F => self.bit_n_r8(prefixed_opcode, mmu),
+            0x80..=0xBF => self.res_n_r8(prefixed_opcode, mmu),
+            0xC0..=0xFF => self.set_n_r8(prefixed_opcode, mmu),
             _ => {}
         };
     }
 
-    fn bit_n_r8(&mut self, opcode: u8) {
+    fn bit_n_r8<BusType: SystemBus>(&mut self, opcode: u8, mmu: &mut BusType) {
         let b543 = (opcode & 0x38) >> 3;
         let b321 = opcode & 0x07;
 
-        let operand = ByteRegister::for_r8(b321, self).get();
+        let operand = ByteRegister::for_r8(b321, self).get(mmu);
         self.regs.f.zero = operand & (1 << b543) == 0;
         self.regs.f.negative = false;
         self.regs.f.half_carry = true;
     }
 
-    fn res_n_r8(&mut self, opcode: u8) {
+    fn res_n_r8<BusType: SystemBus>(&mut self, opcode: u8, mmu: &mut BusType) {
         let b543 = (opcode & 0x38) >> 3;
         let b321 = opcode & 0x07;
 
-        let mut register = ByteRegister::for_r8(b321, self).get();
+        let mut register = ByteRegister::for_r8(b321, self).get(mmu);
         register &= !(0x1 << b543);
 
-        ByteRegister::for_r8(b321, self).set(register);
+        ByteRegister::for_r8(b321, self).set(register, mmu);
     }
 
-    fn set_n_r8(&mut self, opcode: u8) {
+    fn set_n_r8<BusType: SystemBus>(&mut self, opcode: u8, mmu: &mut BusType) {
         let b543 = (opcode & 0x38) >> 3;
         let b321 = opcode & 0x07;
 
-        let mut register = ByteRegister::for_r8(b321, self).get();
+        let mut register = ByteRegister::for_r8(b321, self).get(mmu);
         register |= 0x1 << b543;
 
-        ByteRegister::for_r8(b321, self).set(register);
+        ByteRegister::for_r8(b321, self).set(register, mmu);
     }
 
-    fn inc_r8(&mut self, opcode: u8) {
+    fn inc_r8<BusType: SystemBus>(&mut self, opcode: u8, mmu: &mut BusType) {
         let b543 = (opcode & 0x38) >> 3;
-        let operand = ByteRegister::for_r8(b543, self).get();
+        let operand = ByteRegister::for_r8(b543, self).get(mmu);
 
         let result = operand.wrapping_add(1);
         self.regs.f.zero = result == 0x00;
         self.regs.f.negative = false;
         self.regs.f.half_carry = ((operand & 0x0F) + 0x1) > 0x0F;
 
-        ByteRegister::for_r8(b543, self).set(result);
+        ByteRegister::for_r8(b543, self).set(result, mmu);
     }
 
-    fn dec_r8(&mut self, opcode: u8) {
+    fn dec_r8<BusType: SystemBus>(&mut self, opcode: u8, mmu: &mut BusType) {
         let b543 = (opcode & 0x38) >> 3;
-        let operand = ByteRegister::for_r8(b543, self).get();
+        let operand = ByteRegister::for_r8(b543, self).get(mmu);
 
         let result = operand.wrapping_sub(1);
         self.regs.f.zero = result == 0x00;
         self.regs.f.negative = true;
         self.regs.f.half_carry = operand & 0x0F == 0x00;
 
-        ByteRegister::for_r8(b543, self).set(result);
+        ByteRegister::for_r8(b543, self).set(result, mmu);
     }
 
     fn halt(&mut self, _: u8) {
@@ -451,94 +433,92 @@ where
         system_state.execution_state = ExecutionState::Halted;
     }
 
-    fn ld_r8_r8(&mut self, opcode: u8) {
+    fn ld_r8_r8<BusType: SystemBus>(&mut self, opcode: u8, mmu: &mut BusType) {
         let b543 = (opcode & 0x38) >> 3; // Destination
         let b210 = opcode & 0x07; // Source
 
-        let source = ByteRegister::for_r8(b210, self).get();
-        ByteRegister::for_r8(b543, self).set(source);
+        let source = ByteRegister::for_r8(b210, self).get(mmu);
+        ByteRegister::for_r8(b543, self).set(source, mmu);
     }
 
-    fn ld_ff00_u8_a(&mut self, _: u8) {
-        let offset = u16::from(self.fetch());
-        self.mmu.borrow_mut().write(0xFF00 + offset, self.regs.a);
+    fn ld_ff00_u8_a<BusType: SystemBus>(&mut self, _: u8, mmu: &mut BusType) {
+        let offset = u16::from(self.fetch(mmu));
+        mmu.write(0xFF00 + offset, self.regs.a);
     }
 
-    fn ld_ff00_c_a(&mut self, _: u8) {
-        self.mmu
-            .borrow_mut()
-            .write(0xFF00 + u16::from(self.regs.c), self.regs.a);
+    fn ld_ff00_c_a<BusType: SystemBus>(&mut self, _: u8, mmu: &mut BusType) {
+        mmu.write(0xFF00 + u16::from(self.regs.c), self.regs.a);
     }
 
-    fn ld_a_ff00_u8(&mut self, _: u8) {
-        let offset = u16::from(self.fetch());
-        self.regs.a = self.mmu.borrow().read(0xFF00 + offset);
+    fn ld_a_ff00_u8<BusType: SystemBus>(&mut self, _: u8, mmu: &mut BusType) {
+        let offset = u16::from(self.fetch(mmu));
+        self.regs.a = mmu.read(0xFF00 + offset);
     }
 
-    fn ld_a_ff00_c(&mut self, _: u8) {
-        self.regs.a = self.mmu.borrow().read(0xFF00 + self.regs.c as u16);
+    fn ld_a_ff00_c<BusType: SystemBus>(&mut self, _: u8, mmu: &mut BusType) {
+        self.regs.a = mmu.read(0xFF00 + self.regs.c as u16);
     }
 
-    fn call_u16(&mut self, _: u8) {
-        let lsb = self.fetch();
-        let msb = self.fetch();
+    fn call_u16<BusType: SystemBus>(&mut self, _: u8, mmu: &mut BusType) {
+        let lsb = self.fetch(mmu);
+        let msb = self.fetch(mmu);
         let jump_address = u16::from_be_bytes([msb, lsb]);
 
         // Pre-decrement SP
         self.regs.sp = self.regs.sp.wrapping_sub(1);
-        self.mmu.borrow().tick();
+        mmu.tick();
 
         // Write return location to stack
         let [pc_upper, pc_lower] = self.regs.pc.to_be_bytes();
-        self.mmu.borrow_mut().write(self.regs.sp, pc_upper);
+        mmu.write(self.regs.sp, pc_upper);
         self.regs.sp = self.regs.sp.wrapping_sub(1);
-        self.mmu.borrow_mut().write(self.regs.sp, pc_lower);
+        mmu.write(self.regs.sp, pc_lower);
 
         self.regs.pc = jump_address;
     }
 
-    fn call_cc_u16(&mut self, opcode: u8) {
+    fn call_cc_u16<BusType: SystemBus>(&mut self, opcode: u8, mmu: &mut BusType) {
         let b43 = (opcode & 0x18) >> 3;
 
         if self.check_condition(b43) {
-            self.call_u16(opcode);
+            self.call_u16(opcode, mmu);
         } else {
             // Fetch and discard the subroutine address
-            self.fetch();
-            self.fetch();
+            self.fetch(mmu);
+            self.fetch(mmu);
         }
     }
 
-    fn push_r16(&mut self, opcode: u8) {
+    fn push_r16<BusType: SystemBus>(&mut self, opcode: u8, mmu: &mut BusType) {
         let b54 = (opcode & 0x30) >> 4;
         let register_value = WordRegister::for_group3(b54, self).get();
         let [upper, lower] = register_value.to_be_bytes();
 
         // Pre-decrement of SP takes a cycle
         self.regs.sp = self.regs.sp.wrapping_sub(1);
-        self.mmu.borrow().tick();
+        mmu.tick();
 
-        self.mmu.borrow_mut().write(self.regs.sp, upper);
+        mmu.write(self.regs.sp, upper);
         self.regs.sp = self.regs.sp.wrapping_sub(1);
-        self.mmu.borrow_mut().write(self.regs.sp, lower);
+        mmu.write(self.regs.sp, lower);
     }
 
-    fn pop_r16(&mut self, opcode: u8) {
+    fn pop_r16<BusType: SystemBus>(&mut self, opcode: u8, mmu: &mut BusType) {
         let b54 = (opcode & 0x30) >> 4;
 
-        let lower = self.mmu.borrow().read(self.regs.sp);
+        let lower = mmu.read(self.regs.sp);
         self.regs.sp = self.regs.sp.wrapping_add(1);
-        let upper = self.mmu.borrow().read(self.regs.sp);
+        let upper = mmu.read(self.regs.sp);
         self.regs.sp = self.regs.sp.wrapping_add(1);
 
         WordRegister::for_group3(b54, self).set(u16::from_be_bytes([upper, lower]));
     }
 
-    fn rotate_and_swap_r8(&mut self, opcode: u8) {
+    fn rotate_and_swap_r8<BusType: SystemBus>(&mut self, opcode: u8, mmu: &mut BusType) {
         let b543 = (opcode & 0x38) >> 3;
         let b321 = opcode & 0x07;
 
-        let operand = ByteRegister::for_r8(b321, self).get();
+        let operand = ByteRegister::for_r8(b321, self).get(mmu);
         let result = match b543 {
             0 => self.rlc(operand),
             1 => self.rrc(operand),
@@ -551,7 +531,7 @@ where
             _ => panic!("Invalid bits {:b} for SWAP/ROTATE/SHIFT r8 operation", b543),
         };
 
-        ByteRegister::for_r8(b321, self).set(result);
+        ByteRegister::for_r8(b321, self).set(result, mmu);
     }
 
     fn rlc(&mut self, mut operand: u8) -> u8 {
@@ -745,66 +725,66 @@ where
         WordRegister::for_group1(b54, self).dec();
     }
 
-    fn ret(&mut self, _: u8) {
-        let lower = self.mmu.borrow().read(self.regs.sp);
+    fn ret<BusType: SystemBus>(&mut self, _: u8, mmu: &mut BusType) {
+        let lower = mmu.read(self.regs.sp);
         self.regs.sp = self.regs.sp.wrapping_add(1);
 
-        let upper = self.mmu.borrow().read(self.regs.sp);
+        let upper = mmu.read(self.regs.sp);
         self.regs.sp = self.regs.sp.wrapping_add(1);
 
         self.regs.pc = u16::from_be_bytes([upper, lower]);
         // Final m-cycle
-        self.mmu.borrow().tick();
+        mmu.tick();
     }
 
-    fn reti(&mut self, opcode: u8) {
-        self.ret(opcode);
+    fn reti<BusType: SystemBus>(&mut self, opcode: u8, mmu: &mut BusType) {
+        self.ret(opcode, mmu);
         self.ime = true;
     }
 
-    fn ret_cc(&mut self, opcode: u8) {
+    fn ret_cc<BusType: SystemBus>(&mut self, opcode: u8, mmu: &mut BusType) {
         let b43 = (opcode & 0x18) >> 3;
 
-        self.mmu.borrow().tick(); // Internal branch decision
+        mmu.tick(); // Internal branch decision
 
         if self.check_condition(b43) {
-            self.ret(opcode);
+            self.ret(opcode, mmu);
         }
     }
 
-    fn ld_u16_a(&mut self, _: u8) {
-        let lower = self.fetch();
-        let upper = self.fetch();
+    fn ld_u16_a<BusType: SystemBus>(&mut self, _: u8, mmu: &mut BusType) {
+        let lower = self.fetch(mmu);
+        let upper = self.fetch(mmu);
 
         let address = u16::from_be_bytes([upper, lower]);
-        self.mmu.borrow_mut().write(address, self.regs.a);
+        mmu.write(address, self.regs.a);
     }
 
-    fn ld_a_u16(&mut self, _: u8) {
-        let lower = self.fetch();
-        let upper = self.fetch();
+    fn ld_a_u16<BusType: SystemBus>(&mut self, _: u8, mmu: &mut BusType) {
+        let lower = self.fetch(mmu);
+        let upper = self.fetch(mmu);
 
         let address = u16::from_be_bytes([upper, lower]);
-        self.regs.a = self.mmu.borrow().read(address);
+        self.regs.a = mmu.read(address);
     }
 
-    fn jp_u16(&mut self, _: u8) {
-        let lower = self.fetch();
-        let upper = self.fetch();
+    fn jp_u16<BusType: SystemBus>(&mut self, _: u8, mmu: &mut BusType) {
+        let lower = self.fetch(mmu);
+        let upper = self.fetch(mmu);
 
         self.regs.pc = u16::from_be_bytes([upper, lower]);
-        self.mmu.borrow().tick();
+        mmu.tick();
     }
 
-    fn jp_cc_u16(&mut self, opcode: u8) {
+    fn jp_cc_u16<BusType: SystemBus>(&mut self, opcode: u8, mmu: &mut BusType) {
         let b43 = (opcode & 0x18) >> 3;
 
         if self.check_condition(b43) {
-            self.jp_u16(opcode);
+            self.jp_u16(opcode, mmu);
         } else {
             // Fetch and discard the jump address
-            self.fetch();
-            self.fetch();
+            self.fetch(mmu);
+            self.fetch(mmu);
         }
     }
 
@@ -812,7 +792,7 @@ where
         self.ime = false;
     }
 
-    fn add_hl_r16(&mut self, opcode: u8) {
+    fn add_hl_r16<BusType: SystemBus>(&mut self, opcode: u8, mmu: &mut BusType) {
         let b54 = (opcode & 0x30) >> 4;
         let operand = WordRegister::for_group1(b54, self).get();
 
@@ -822,15 +802,15 @@ where
         self.regs.f.half_carry = (self.regs.get_hl() & 0xFFF) + (operand & 0xFFF) > 0xFFF;
 
         self.regs.set_hl(result);
-        self.mmu.borrow().tick(); // Second cycle
+        mmu.tick(); // Second cycle
     }
 
     fn jp_hl(&mut self, _: u8) {
         self.regs.pc = self.regs.get_hl();
     }
 
-    fn add_sp_i8(&mut self, _: u8) {
-        let operand = self.fetch() as i8 as i16 as u16;
+    fn add_sp_i8<BusType: SystemBus>(&mut self, _: u8, mmu: &mut BusType) {
+        let operand = self.fetch(mmu) as i8 as i16 as u16;
         let result = self.regs.sp.wrapping_add(operand);
 
         self.regs.f.zero = false;
@@ -841,8 +821,8 @@ where
         self.regs.sp = result;
     }
 
-    fn ld_hl_sp_i8(&mut self, _: u8) {
-        let operand = self.fetch() as i8 as i16 as u16;
+    fn ld_hl_sp_i8<BusType: SystemBus>(&mut self, _: u8, mmu: &mut BusType) {
+        let operand = self.fetch(mmu) as i8 as i16 as u16;
         let result = self.regs.sp.wrapping_add(operand);
 
         self.regs.f.zero = false;
@@ -853,55 +833,55 @@ where
         self.regs.set_hl(result);
     }
 
-    fn ld_sp_hl(&mut self, _: u8) {
+    fn ld_sp_hl<BusType: SystemBus>(&mut self, _: u8, mmu: &mut BusType) {
         self.regs.sp = self.regs.get_hl();
-        self.mmu.borrow().tick();
+        mmu.tick();
     }
 
-    fn ei(&mut self, _: u8) {
+    fn ei<BusType: SystemBus>(&mut self, _: u8, mmu: &mut BusType) {
         // The effect of EI is delayed by one m-cycle
         // TODO: Check behaviour if EI is followed by a HALT
 
         // Don't execute another opcode if running CPU opcode tests
         #[cfg(not(test))]
         {
-            self.execute_opcode();
+            self.execute_opcode(mmu);
         }
         self.ime = true;
     }
 
-    fn ld_u16_sp(&mut self, _: u8) {
-        let lower = self.fetch();
-        let upper = self.fetch();
+    fn ld_u16_sp<BusType: SystemBus>(&mut self, _: u8, mmu: &mut BusType) {
+        let lower = self.fetch(mmu);
+        let upper = self.fetch(mmu);
         let address = u16::from_be_bytes([upper, lower]);
         let [sp_upper, sp_lower] = self.regs.sp.to_be_bytes();
 
-        self.mmu.borrow_mut().write(address, sp_lower);
-        self.mmu.borrow_mut().write(address + 1, sp_upper);
+        mmu.write(address, sp_lower);
+        mmu.write(address + 1, sp_upper);
     }
 
-    fn rst(&mut self, opcode: u8) {
+    fn rst<BusType: SystemBus>(&mut self, opcode: u8, mmu: &mut BusType) {
         let target = (opcode & 0x38) as u16;
 
         // Pre-decrement SP
         self.regs.sp = self.regs.sp.wrapping_sub(1);
-        self.mmu.borrow().tick();
+        mmu.tick();
 
         // Write return location to stack
         let [pc_upper, pc_lower] = self.regs.pc.to_be_bytes();
-        self.mmu.borrow_mut().write(self.regs.sp, pc_upper);
+        mmu.write(self.regs.sp, pc_upper);
         self.regs.sp = self.regs.sp.wrapping_sub(1);
-        self.mmu.borrow_mut().write(self.regs.sp, pc_lower);
+        mmu.write(self.regs.sp, pc_lower);
 
         self.regs.pc = target;
     }
 }
 
 enum FlagRegisterMask {
-    Zero = (1 << 7),
-    Negative = (1 << 6),
-    HalfCarry = (1 << 5),
-    Carry = (1 << 4),
+    Zero = 1 << 7,
+    Negative = 1 << 6,
+    HalfCarry = 1 << 5,
+    Carry = 1 << 4,
 }
 
 #[derive(Debug, Default, Clone, Copy, Eq, PartialEq)]
@@ -1004,7 +984,7 @@ enum WordRegister<'a> {
 }
 
 impl<'a> WordRegister<'a> {
-    pub fn for_group1<BusType: MemoryBus>(bits: u8, cpu: &'a mut Cpu<BusType>) -> Self {
+    pub fn for_group1(bits: u8, cpu: &'a mut Cpu) -> Self {
         match bits {
             0 => WordRegister::Pair {
                 upper: &mut cpu.regs.b,
@@ -1023,7 +1003,7 @@ impl<'a> WordRegister<'a> {
         }
     }
 
-    pub fn for_group2<BusType: MemoryBus>(bits: u8, cpu: &'a mut Cpu<BusType>) -> Self {
+    pub fn for_group2(bits: u8, cpu: &'a mut Cpu) -> Self {
         match bits {
             0 => WordRegister::Pair {
                 upper: &mut cpu.regs.b,
@@ -1041,7 +1021,7 @@ impl<'a> WordRegister<'a> {
         }
     }
 
-    pub fn for_group3<BusType: MemoryBus>(bits: u8, cpu: &'a mut Cpu<BusType>) -> Self {
+    pub fn for_group3(bits: u8, cpu: &'a mut Cpu) -> Self {
         match bits {
             0 => WordRegister::Pair {
                 upper: &mut cpu.regs.b,
@@ -1122,16 +1102,14 @@ impl<'a> WordRegister<'a> {
     }
 }
 
-enum ByteRegister<'a, BusType: MemoryBus> {
+enum ByteRegister<'a> {
     Register(&'a mut u8),
-    MemoryReference(u16, Rc<RefCell<BusType>>),
+    MemoryReference(u16),
 }
 
-impl<'a, BusType> ByteRegister<'a, BusType>
-where
-    BusType: MemoryBus,
+impl<'a> ByteRegister<'a>
 {
-    pub fn for_r8(bits: u8, cpu: &'a mut Cpu<BusType>) -> Self {
+    pub fn for_r8(bits: u8, cpu: &'a mut Cpu) -> Self {
         match bits {
             0 => ByteRegister::Register(&mut cpu.regs.b),
             1 => ByteRegister::Register(&mut cpu.regs.c),
@@ -1139,23 +1117,23 @@ where
             3 => ByteRegister::Register(&mut cpu.regs.e),
             4 => ByteRegister::Register(&mut cpu.regs.h),
             5 => ByteRegister::Register(&mut cpu.regs.l),
-            6 => ByteRegister::MemoryReference(cpu.regs.get_hl(), Rc::clone(&cpu.mmu)),
+            6 => ByteRegister::MemoryReference(cpu.regs.get_hl()),
             7 => ByteRegister::Register(&mut cpu.regs.a),
             _ => panic!("Invalid decode bits for R8 register {:b}", bits),
         }
     }
 
-    pub fn get(&self) -> u8 {
+    pub fn get<BusType: SystemBus>(&self, mmu: &mut BusType) -> u8 {
         match self {
             ByteRegister::Register(ptr) => **ptr,
-            ByteRegister::MemoryReference(address, mmu) => mmu.borrow().read(*address),
+            ByteRegister::MemoryReference(address) => mmu.read(*address),
         }
     }
 
-    pub fn set(&mut self, value: u8) {
+    pub fn set<BusType: SystemBus>(&mut self, value: u8, mmu: &mut BusType) {
         match self {
             ByteRegister::Register(ptr) => **ptr = value,
-            ByteRegister::MemoryReference(address, mmu) => mmu.borrow_mut().write(*address, value),
+            ByteRegister::MemoryReference(address) => mmu.write(*address, value),
         }
     }
 }
@@ -1182,7 +1160,7 @@ pub mod tests {
         D: Deserializer<'de>,
         T: FromStr + serde::Deserialize<'de> + num_traits::Unsigned,
         <T as FromStr>::Err: Display,
-        <T as num_traits::Num>::FromStrRadixErr: std::fmt::Display,
+        <T as num_traits::Num>::FromStrRadixErr: Display,
     {
         #[derive(Deserialize)]
         #[serde(untagged)]
@@ -1293,41 +1271,45 @@ pub mod tests {
             Self {
                 memory,
                 ticked_cycle_count: Cell::new(0),
-                expected_cycles
+                expected_cycles,
             }
         }
     }
 
     impl Memory for FlatMmu<'_> {
         fn read(&self, address: u16) -> u8 {
-            let expected_cycle = self.expected_cycles[self.ticked_cycle_count.get() as usize].clone().unwrap();
+            let expected_cycle = self.expected_cycles[self.ticked_cycle_count.get() as usize]
+                .clone()
+                .unwrap();
             assert_eq!(expected_cycle.0, address);
             assert_eq!(&expected_cycle.2, "read");
 
             self.tick();
-            let data = self.raw_read(address);
+            let data = self.unticked_read(address);
             assert_eq!(expected_cycle.1, data);
 
             data
         }
 
         fn write(&mut self, address: u16, data: u8) {
-            let expected_cycle = self.expected_cycles[self.ticked_cycle_count.get() as usize].clone().unwrap();
+            let expected_cycle = self.expected_cycles[self.ticked_cycle_count.get() as usize]
+                .clone()
+                .unwrap();
             assert_eq!(expected_cycle.0, address);
             assert_eq!(expected_cycle.1, data);
             assert_eq!(&expected_cycle.2, "write");
 
             self.tick();
-            self.raw_write(address, data);
+            self.unticked_write(address, data);
         }
     }
 
-    impl MemoryBus for FlatMmu<'_> {
-        fn raw_read(&self, address: u16) -> u8 {
+    impl SystemBus for FlatMmu<'_> {
+        fn unticked_read(&self, address: u16) -> u8 {
             self.memory[address as usize]
         }
 
-        fn raw_write(&mut self, address: u16, data: u8) {
+        fn unticked_write(&mut self, address: u16, data: u8) {
             self.memory[address as usize] = data
         }
 
@@ -1338,19 +1320,19 @@ pub mod tests {
     }
 
     fn run_test_case(test_case: &OpcodeTestCase) {
-        let mmu = Rc::new(RefCell::new(FlatMmu::new(&test_case.initial.ram, &test_case.cycles)));
+        let mut mmu = FlatMmu::new(
+            &test_case.initial.ram,
+            &test_case.cycles,
+        );
         let interrupts = Rc::new(RefCell::new(InterruptHandler::default()));
         let system_state = Rc::new(RefCell::new(SystemState::default()));
-        let mut cpu = Cpu::new(Rc::clone(&mmu), interrupts, system_state);
+        let mut cpu = Cpu::new(interrupts, system_state);
         cpu.regs = Registers::from(test_case.initial.cpu);
-        cpu.execute_opcode();
+        cpu.execute_opcode(&mut mmu);
 
         assert_eq!(cpu.regs, test_case.r#final.cpu.into());
-        {
-            let mmu = mmu.borrow();
-            for RamState(address, data) in &test_case.r#final.ram {
-                assert_eq!(mmu.memory[*address as usize], *data);
-            }
+        for RamState(address, data) in &test_case.r#final.ram {
+            assert_eq!(mmu.memory[*address as usize], *data);
         }
     }
 

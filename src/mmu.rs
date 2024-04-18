@@ -13,7 +13,7 @@ use crate::serial::{Serial, SERIAL_END, SERIAL_START};
 use crate::timer::{Timer, TIMER_END, TIMER_START};
 use crate::{HardwareSupport, SystemState};
 
-use crate::memory::MemoryBus;
+use crate::memory::SystemBus;
 use crate::{
     cartridge::{
         Cartridge, BOOT_ROM_END, BOOT_ROM_START, CART_RAM_END, CART_RAM_START, CART_ROM_END,
@@ -136,7 +136,7 @@ impl Mmu {
         let mut oam_dma_completed = false;
         if let Some(oam_dma) = self.oam_dma.borrow_mut().as_mut() {
             let dest_address = 0xFE00 | (oam_dma.next_address & 0x00FF);
-            let data = self.raw_read(oam_dma.next_address);
+            let data = self.unticked_read(oam_dma.next_address);
             self.ppu.borrow_mut().write(dest_address, data);
 
             oam_dma.next_address += 1;
@@ -194,8 +194,8 @@ impl Mmu {
                     (self.system_state.borrow().hdma_state.dest_addr & 0x1FF0) | 0x8000;
 
                 for _ in 0..len {
-                    let value = self.raw_read(src_addr);
-                    self.raw_write(dest_addr, value);
+                    let value = self.unticked_read(src_addr);
+                    self.unticked_write(dest_addr, value);
                     src_addr += 1;
                     dest_addr += 1;
                 }
@@ -235,7 +235,7 @@ impl Memory for Mmu {
                 0xFF
             }
         } else {
-            self.raw_read(address)
+            self.unticked_read(address)
         }
     }
 
@@ -247,15 +247,15 @@ impl Memory for Mmu {
                 self.hram[address as usize - 0xFF80] = data;
             }
         } else {
-            self.raw_write(address, data);
+            self.unticked_write(address, data);
         };
     }
 }
 
-impl MemoryBus for Mmu {
+impl SystemBus for Mmu {
     /// Raw Read: Read the contents of a memory location without ticking all the
     /// components
-    fn raw_read(&self, address: u16) -> u8 {
+    fn unticked_read(&self, address: u16) -> u8 {
         match address {
             CART_HEADER_START..=CART_HEADER_END => return self.cart.read(address),
             BOOT_ROM_START..=BOOT_ROM_END if self.system_state.borrow().bootrom_mapped => {
@@ -269,7 +269,7 @@ impl MemoryBus for Mmu {
             }
             // Switchable bank for WRAM
             WRAM_BANKED_START..=WRAM_BANKED_END => return self.wram_banked_read(address),
-            WRAM_ECHO_START..=WRAM_ECHO_END => return self.raw_read(address - WRAM_ECHO_START),
+            WRAM_ECHO_START..=WRAM_ECHO_END => return self.unticked_read(address - WRAM_ECHO_START),
             OAM_START..=OAM_END => return self.ppu.borrow().read(address),
             UNUSED_START..=UNUSED_END => {}
             JOYP_ADDRESS => return self.joypad.borrow().read(address),
@@ -294,7 +294,7 @@ impl MemoryBus for Mmu {
         0xFF
     }
 
-    fn raw_write(&mut self, address: u16, data: u8) {
+    fn unticked_write(&mut self, address: u16, data: u8) {
         match address {
             CART_HEADER_START..=CART_HEADER_END => self.cart.write(address, data),
             BOOT_ROM_START..=BOOT_ROM_END if self.system_state.borrow().bootrom_mapped => {
@@ -307,7 +307,7 @@ impl MemoryBus for Mmu {
                 self.wram[(address - WRAM_FIXED_START) as usize] = data
             }
             WRAM_BANKED_START..=WRAM_BANKED_END => self.wram_banked_write(address, data),
-            WRAM_ECHO_START..=WRAM_ECHO_END => self.raw_write(address - WRAM_ECHO_START, data),
+            WRAM_ECHO_START..=WRAM_ECHO_END => self.unticked_write(address - WRAM_ECHO_START, data),
             OAM_START..=OAM_END => self.ppu.borrow_mut().write(address, data),
             UNUSED_START..=UNUSED_END => {}
             JOYP_ADDRESS => self.joypad.borrow_mut().write(address, data),

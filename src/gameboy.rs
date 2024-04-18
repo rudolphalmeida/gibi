@@ -14,9 +14,9 @@ use crate::{ExecutionState, HardwareSupport, HdmaState, SystemState};
 const CYCLES_PER_FRAME: u64 = 17556;
 
 pub struct Gameboy {
-    mmu: Rc<RefCell<Mmu>>,
+    mmu: Mmu,
     joypad: Rc<RefCell<Joypad>>,
-    cpu: Cpu<Mmu>,
+    cpu: Cpu,
 
     system_state: Rc<RefCell<SystemState>>,
 }
@@ -25,6 +25,12 @@ impl Gameboy {
     pub fn new(rom: Vec<u8>, ram: Option<Vec<u8>>) -> Self {
         let cart = init_mbc_from_rom(rom, ram);
         let hardware_support = cart.hardware_supported();
+
+        log::info!("Loaded a cartridge with MBC: {}", cart.name());
+        log::info!("Number of ROM banks: {}", cart.rom_banks());
+        log::info!("ROM size (Bytes): {}", cart.rom_size());
+        log::info!("Number of RAM banks: {}", cart.ram_banks());
+        log::info!("RAM size (Bytes): {}", cart.ram_size());
 
         match hardware_support {
             HardwareSupport::CgbOnly => log::info!("Game supports CGB hardware only"),
@@ -48,22 +54,13 @@ impl Gameboy {
 
         let interrupts = Rc::new(RefCell::new(InterruptHandler::default()));
         let joypad = Rc::new(RefCell::new(Joypad::new(Rc::clone(&interrupts))));
-        let mmu = Rc::new(RefCell::new(Mmu::new(
+        let mmu = Mmu::new(
             cart,
             Rc::clone(&system_state),
             Rc::clone(&joypad),
             Rc::clone(&interrupts),
-        )));
-        let cpu = Cpu::new(Rc::clone(&mmu), interrupts, Rc::clone(&system_state));
-
-        {
-            let mmu = mmu.borrow();
-            log::info!("Loaded a cartridge with MBC: {}", mmu.cart.name());
-            log::info!("Number of ROM banks: {}", mmu.cart.rom_banks());
-            log::info!("ROM size (Bytes): {}", mmu.cart.rom_size());
-            log::info!("Number of RAM banks: {}", mmu.cart.ram_banks());
-            log::info!("RAM size (Bytes): {}", mmu.cart.ram_size());
-        }
+        );
+        let cpu = Cpu::new(interrupts, Rc::clone(&system_state));
         Gameboy {
             system_state,
             mmu,
@@ -86,7 +83,7 @@ impl Gameboy {
             machine_cycles + CYCLES_PER_FRAME * speed_multiplier - carry_over_cycles;
 
         while self.system_state.borrow().total_cycles < target_machine_cycles {
-            self.cpu.execute();
+            self.cpu.execute(&mut self.mmu);
         }
 
         let carry_over_cycles = self.system_state.borrow().total_cycles - target_machine_cycles;
@@ -94,7 +91,7 @@ impl Gameboy {
     }
 
     pub fn write_frame(&self, frame_writer: &mut access::AccessW<GameFrame>) {
-        self.mmu.borrow().ppu.borrow().write_frame(frame_writer);
+        self.mmu.ppu.borrow().write_frame(frame_writer);
     }
 
     pub fn keydown(&mut self, key: JoypadKeys) {
@@ -106,7 +103,7 @@ impl Gameboy {
     }
 
     pub fn save(&self, path: &PathBuf) -> io::Result<String> {
-        if let Some(ram) = self.mmu.borrow().save_ram() {
+        if let Some(ram) = self.mmu.save_ram() {
             fs::write(path, ram).map(|_| "Save RAM to file".into())
         } else {
             Ok("Game does not have battery-backed saves".into())

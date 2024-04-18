@@ -13,10 +13,8 @@ pub(crate) trait Memory {
     fn write(&mut self, address: u16, data: u8);
 }
 
-pub(crate) trait MemoryBus: Memory {
-    fn raw_read(&self, address: u16) -> u8;
-
-    fn raw_write(&mut self, address: u16, data: u8);
-
+pub(crate) trait SystemBus: Memory {
+    fn unticked_read(&self, address: u16) -> u8;
+    fn unticked_write(&mut self, address: u16, data: u8);
     fn tick(&self);
 }
