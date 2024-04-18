@@ -7,7 +7,7 @@ use crate::cartridge::init_mbc_from_rom;
 use crate::cpu::Registers;
 use crate::framebuffer::access;
 use crate::interrupts::InterruptHandler;
-use crate::joypad::{Joypad, JoypadKeys};
+use crate::joypad::{JoypadKeys};
 use crate::{cpu::Cpu, mmu::Mmu, GameFrame};
 use crate::{ExecutionState, HardwareSupport, HdmaState, SystemState};
 
@@ -15,7 +15,6 @@ const CYCLES_PER_FRAME: u64 = 17556;
 
 pub struct Gameboy {
     mmu: Mmu,
-    joypad: Rc<RefCell<Joypad>>,
     cpu: Cpu,
 
     system_state: Rc<RefCell<SystemState>>,
@@ -53,11 +52,9 @@ impl Gameboy {
         }));
 
         let interrupts = Rc::new(RefCell::new(InterruptHandler::default()));
-        let joypad = Rc::new(RefCell::new(Joypad::new(Rc::clone(&interrupts))));
         let mmu = Mmu::new(
             cart,
             Rc::clone(&system_state),
-            Rc::clone(&joypad),
             Rc::clone(&interrupts),
         );
         let cpu = Cpu::new(interrupts, Rc::clone(&system_state));
@@ -65,7 +62,6 @@ impl Gameboy {
             system_state,
             mmu,
             cpu,
-            joypad,
         }
     }
 
@@ -95,11 +91,11 @@ impl Gameboy {
     }
 
     pub fn keydown(&mut self, key: JoypadKeys) {
-        self.joypad.borrow_mut().keydown(key);
+        self.mmu.keydown(key);
     }
 
     pub fn keyup(&mut self, key: JoypadKeys) {
-        self.joypad.borrow_mut().keyup(key);
+        self.mmu.keyup(key);
     }
 
     pub fn save(&self, path: &PathBuf) -> io::Result<String> {

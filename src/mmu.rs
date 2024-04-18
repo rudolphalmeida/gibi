@@ -1,7 +1,6 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
-
 use crate::apu::{Apu, SOUND_END, SOUND_START, WAVE_END, WAVE_START};
 use crate::cartridge::CGB_BOOT_ROM;
 use crate::interrupts::{InterruptHandler, INTERRUPT_ENABLE_ADDRESS, INTERRUPT_FLAG_ADDRESS};
@@ -13,6 +12,7 @@ use crate::serial::{Serial, SERIAL_END, SERIAL_START};
 use crate::timer::{Timer, TIMER_END, TIMER_START};
 use crate::{HardwareSupport, SystemState};
 
+use crate::joypad::JoypadKeys;
 use crate::memory::SystemBus;
 use crate::{
     cartridge::{
@@ -75,7 +75,7 @@ pub(crate) struct Mmu {
     pub(crate) cart: Box<dyn Cartridge>,
     pub(crate) ppu: Ppu,
     apu: Apu,
-    joypad: Rc<RefCell<Joypad>>,
+    joypad: Joypad,
     timer: Timer,
     serial: Serial,
     interrupts: Rc<RefCell<InterruptHandler>>,
@@ -97,7 +97,6 @@ impl Mmu {
     pub fn new(
         cart: Box<dyn Cartridge>,
         system_state: Rc<RefCell<SystemState>>,
-        joypad: Rc<RefCell<Joypad>>,
         interrupts: Rc<RefCell<InterruptHandler>>,
     ) -> Self {
         let wram = [0x00; WRAM_BANK_SIZE * 8]; // 32KB
@@ -111,6 +110,7 @@ impl Mmu {
         let timer = Timer::new(Rc::clone(&interrupts), Rc::clone(&system_state));
         let ppu = Ppu::new(Rc::clone(&interrupts), Rc::clone(&system_state));
         let apu = Apu::new();
+        let joypad = Joypad::new(Rc::clone(&interrupts));
 
         Self {
             cart,
@@ -132,7 +132,12 @@ impl Mmu {
         // Perform DMA
         let mut oam_dma_completed = false;
         if self.oam_dma.borrow().is_some() {
-            let (next_address, pending_cycles) = self.oam_dma.borrow().as_ref().map(|oam_dma| (oam_dma.next_address, oam_dma.pending_cycles)).unwrap();
+            let (next_address, pending_cycles) = self
+                .oam_dma
+                .borrow()
+                .as_ref()
+                .map(|oam_dma| (oam_dma.next_address, oam_dma.pending_cycles))
+                .unwrap();
             let dest_address = 0xFE00 | (next_address & 0x00FF);
 
             let data = self.unticked_read(next_address);
@@ -207,6 +212,14 @@ impl Mmu {
         }
     }
 
+    pub fn keydown(&mut self, key: JoypadKeys) {
+        self.joypad.keydown(key);
+    }
+
+    pub fn keyup(&mut self, key: JoypadKeys) {
+        self.joypad.keyup(key);
+    }
+
     fn disable_bootrom(&mut self, data: u8) {
         self.system_state.borrow_mut().bootrom_mapped = data == 0x00;
         if !self.system_state.borrow().bootrom_mapped {
@@ -268,10 +281,12 @@ impl SystemBus for Mmu {
             }
             // Switchable bank for WRAM
             WRAM_BANKED_START..=WRAM_BANKED_END => return self.wram_banked_read(address),
-            WRAM_ECHO_START..=WRAM_ECHO_END => return self.unticked_read(address - WRAM_ECHO_START),
+            WRAM_ECHO_START..=WRAM_ECHO_END => {
+                return self.unticked_read(address - WRAM_ECHO_START)
+            }
             OAM_START..=OAM_END => return self.ppu.read(address),
             UNUSED_START..=UNUSED_END => {}
-            JOYP_ADDRESS => return self.joypad.borrow_mut().read(address),
+            JOYP_ADDRESS => return self.joypad.read(address),
             SERIAL_START..=SERIAL_END => return self.serial.read(address),
             TIMER_START..=TIMER_END => return self.timer.read(address),
             INTERRUPT_FLAG_ADDRESS => return self.interrupts.borrow_mut().read(address),
@@ -309,7 +324,7 @@ impl SystemBus for Mmu {
             WRAM_ECHO_START..=WRAM_ECHO_END => self.unticked_write(address - WRAM_ECHO_START, data),
             OAM_START..=OAM_END => self.ppu.write(address, data),
             UNUSED_START..=UNUSED_END => {}
-            JOYP_ADDRESS => self.joypad.borrow_mut().write(address, data),
+            JOYP_ADDRESS => self.joypad.write(address, data),
             SERIAL_START..=SERIAL_END => self.serial.write(address, data),
             TIMER_START..=TIMER_END => self.timer.write(address, data),
             INTERRUPT_FLAG_ADDRESS => self.interrupts.borrow_mut().write(address, data),
@@ -369,7 +384,7 @@ impl SystemBus for Mmu {
         let speed_multiplier = self.system_state.borrow().speed_multiplier();
 
         self.timer.tick();
-        self.joypad.borrow_mut().tick();
+        self.joypad.tick();
         self.ppu.tick(speed_multiplier);
         self.apu.tick(speed_multiplier);
     }
