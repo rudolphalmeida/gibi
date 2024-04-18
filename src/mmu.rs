@@ -69,14 +69,14 @@ struct OamDma {
 
 /// The MMU (Memory-Management Unit) is responsible for connecting the CPU to
 /// the rest of the components. The `Mmu` implements the memory-map of the
-/// GameBoy, redirecting reads and writes made by the CPU and PPU to the
+/// Game Boy, redirecting reads and writes made by the CPU and PPU to the
 /// correct component to which the address is mapped.
 pub(crate) struct Mmu {
     pub(crate) cart: Box<dyn Cartridge>,
-    pub(crate) ppu: RefCell<Ppu>,
-    apu: RefCell<Apu>,
+    pub(crate) ppu: Ppu,
+    apu: Apu,
     joypad: Rc<RefCell<Joypad>>,
-    timer: RefCell<Timer>,
+    timer: Timer,
     serial: Serial,
     interrupts: Rc<RefCell<InterruptHandler>>,
 
@@ -105,15 +105,12 @@ impl Mmu {
 
         let hram = [0x00; HRAM_SIZE];
         let serial = Serial::new();
-        let timer = RefCell::new(Timer::new(Rc::clone(&interrupts), Rc::clone(&system_state)));
 
         let oam_dma = RefCell::new(None);
 
-        let ppu = RefCell::new(Ppu::new(Rc::clone(&interrupts), Rc::clone(&system_state)));
-
-        let apu = RefCell::new(Apu::new());
-
-        log::debug!("Initialized MMU for CGB");
+        let timer = Timer::new(Rc::clone(&interrupts), Rc::clone(&system_state));
+        let ppu = Ppu::new(Rc::clone(&interrupts), Rc::clone(&system_state));
+        let apu = Apu::new();
 
         Self {
             cart,
@@ -131,18 +128,20 @@ impl Mmu {
         }
     }
 
-    fn tick_oam_dma(&self) {
+    fn tick_oam_dma(&mut self) {
         // Perform DMA
         let mut oam_dma_completed = false;
-        if let Some(oam_dma) = self.oam_dma.borrow_mut().as_mut() {
-            let dest_address = 0xFE00 | (oam_dma.next_address & 0x00FF);
-            let data = self.unticked_read(oam_dma.next_address);
-            self.ppu.borrow_mut().write(dest_address, data);
+        if self.oam_dma.borrow().is_some() {
+            let (next_address, pending_cycles) = self.oam_dma.borrow().as_ref().map(|oam_dma| (oam_dma.next_address, oam_dma.pending_cycles)).unwrap();
+            let dest_address = 0xFE00 | (next_address & 0x00FF);
 
-            oam_dma.next_address += 1;
-            match oam_dma.pending_cycles.checked_sub(1) {
+            let data = self.unticked_read(next_address);
+            self.ppu.write(dest_address, data);
+
+            self.oam_dma.borrow_mut().as_mut().unwrap().next_address += 1;
+            match pending_cycles.checked_sub(1) {
                 None => oam_dma_completed = true,
-                Some(x) => oam_dma.pending_cycles = x,
+                Some(x) => self.oam_dma.borrow_mut().as_mut().unwrap().pending_cycles = x,
             }
         }
 
@@ -225,7 +224,7 @@ impl Memory for Mmu {
     /// because `read` here needs to take a mutable reference to `self` due to
     /// using `tick` inside it. We want the other components to keep up with the
     /// CPU during each memory access
-    fn read(&self, address: u16) -> u8 {
+    fn read(&mut self, address: u16) -> u8 {
         self.tick();
         if self.oam_dma_in_progress() {
             // Only HRAM is accessible during OAM DMA
@@ -255,14 +254,14 @@ impl Memory for Mmu {
 impl SystemBus for Mmu {
     /// Raw Read: Read the contents of a memory location without ticking all the
     /// components
-    fn unticked_read(&self, address: u16) -> u8 {
+    fn unticked_read(&mut self, address: u16) -> u8 {
         match address {
             CART_HEADER_START..=CART_HEADER_END => return self.cart.read(address),
             BOOT_ROM_START..=BOOT_ROM_END if self.system_state.borrow().bootrom_mapped => {
                 return CGB_BOOT_ROM[address as usize]
             }
             CART_ROM_START..=CART_ROM_END => return self.cart.read(address),
-            VRAM_START..=VRAM_END => return self.ppu.borrow().read(address),
+            VRAM_START..=VRAM_END => return self.ppu.read(address),
             CART_RAM_START..=CART_RAM_END => return self.cart.read(address),
             WRAM_FIXED_START..=WRAM_FIXED_END => {
                 return self.wram[(address - WRAM_FIXED_START) as usize]
@@ -270,25 +269,25 @@ impl SystemBus for Mmu {
             // Switchable bank for WRAM
             WRAM_BANKED_START..=WRAM_BANKED_END => return self.wram_banked_read(address),
             WRAM_ECHO_START..=WRAM_ECHO_END => return self.unticked_read(address - WRAM_ECHO_START),
-            OAM_START..=OAM_END => return self.ppu.borrow().read(address),
+            OAM_START..=OAM_END => return self.ppu.read(address),
             UNUSED_START..=UNUSED_END => {}
-            JOYP_ADDRESS => return self.joypad.borrow().read(address),
+            JOYP_ADDRESS => return self.joypad.borrow_mut().read(address),
             SERIAL_START..=SERIAL_END => return self.serial.read(address),
-            TIMER_START..=TIMER_END => return self.timer.borrow().read(address),
-            INTERRUPT_FLAG_ADDRESS => return self.interrupts.borrow().read(address),
-            SOUND_START..=SOUND_END => return self.apu.borrow().read(address),
-            WAVE_START..=WAVE_END => return self.apu.borrow().read(address),
+            TIMER_START..=TIMER_END => return self.timer.read(address),
+            INTERRUPT_FLAG_ADDRESS => return self.interrupts.borrow_mut().read(address),
+            SOUND_START..=SOUND_END => return self.apu.read(address),
+            WAVE_START..=WAVE_END => return self.apu.read(address),
             OAM_DMA_ADDRESS => return 0xFF, // TODO: Check if this is correct
-            PPU_REGISTERS_START..=PPU_REGISTERS_END => return self.ppu.borrow().read(address),
-            VRAM_BANK_ADDRESS => return self.ppu.borrow().read(address),
+            PPU_REGISTERS_START..=PPU_REGISTERS_END => return self.ppu.read(address),
+            VRAM_BANK_ADDRESS => return self.ppu.read(address),
             KEY1 => return self.system_state.borrow().key1,
             BOOTROM_DISABLE => return u8::from(self.system_state.borrow().bootrom_mapped),
             HDMA1..=HDMA4 => return 0xFF,
             HDMA5 => return self.system_state.borrow().hdma_state.hdma_stat,
-            PALETTE_START..=PALETTE_END => return self.ppu.borrow().read(address),
+            PALETTE_START..=PALETTE_END => return self.ppu.read(address),
             WRAM_BANK_SELECT => return self.wram_bank as u8,
             HRAM_START..=HRAM_END => return self.hram[(address - HRAM_START) as usize],
-            INTERRUPT_ENABLE_ADDRESS => return self.interrupts.borrow().read(address),
+            INTERRUPT_ENABLE_ADDRESS => return self.interrupts.borrow_mut().read(address),
             _ => log::error!("Unknown address to Mmu::read {:#06X}", address),
         }
         0xFF
@@ -301,21 +300,21 @@ impl SystemBus for Mmu {
                 log::error!("Write to boot ROM {:#06X} with {:#04X}", address, data)
             }
             CART_ROM_START..=CART_ROM_END => self.cart.write(address, data),
-            VRAM_START..=VRAM_END => self.ppu.borrow_mut().write(address, data),
+            VRAM_START..=VRAM_END => self.ppu.write(address, data),
             CART_RAM_START..=CART_RAM_END => self.cart.write(address, data),
             WRAM_FIXED_START..=WRAM_FIXED_END => {
                 self.wram[(address - WRAM_FIXED_START) as usize] = data
             }
             WRAM_BANKED_START..=WRAM_BANKED_END => self.wram_banked_write(address, data),
             WRAM_ECHO_START..=WRAM_ECHO_END => self.unticked_write(address - WRAM_ECHO_START, data),
-            OAM_START..=OAM_END => self.ppu.borrow_mut().write(address, data),
+            OAM_START..=OAM_END => self.ppu.write(address, data),
             UNUSED_START..=UNUSED_END => {}
             JOYP_ADDRESS => self.joypad.borrow_mut().write(address, data),
             SERIAL_START..=SERIAL_END => self.serial.write(address, data),
-            TIMER_START..=TIMER_END => self.timer.borrow_mut().write(address, data),
+            TIMER_START..=TIMER_END => self.timer.write(address, data),
             INTERRUPT_FLAG_ADDRESS => self.interrupts.borrow_mut().write(address, data),
-            SOUND_START..=SOUND_END => self.apu.borrow_mut().write(address, data),
-            WAVE_START..=WAVE_END => self.apu.borrow_mut().write(address, data),
+            SOUND_START..=SOUND_END => self.apu.write(address, data),
+            WAVE_START..=WAVE_END => self.apu.write(address, data),
             OAM_DMA_ADDRESS => {
                 let oam_dma = OamDma {
                     pending_cycles: OAM_DMA_CYCLES,
@@ -324,8 +323,8 @@ impl SystemBus for Mmu {
 
                 *self.oam_dma.borrow_mut() = Some(oam_dma);
             }
-            PPU_REGISTERS_START..=PPU_REGISTERS_END => self.ppu.borrow_mut().write(address, data),
-            VRAM_BANK_ADDRESS => self.ppu.borrow_mut().write(address, data),
+            PPU_REGISTERS_START..=PPU_REGISTERS_END => self.ppu.write(address, data),
+            VRAM_BANK_ADDRESS => self.ppu.write(address, data),
             KEY1 => {
                 let key1 = (self.system_state.borrow().key1 & 0x80) | (data & 0x7F);
                 self.system_state.borrow_mut().key1 = key1;
@@ -355,7 +354,7 @@ impl SystemBus for Mmu {
                 self.on_hdma5_write(data)
             }
             HDMA5 => {}
-            PALETTE_START..=PALETTE_END => self.ppu.borrow_mut().write(address, data),
+            PALETTE_START..=PALETTE_END => self.ppu.write(address, data),
             WRAM_BANK_SELECT => self.wram_bank = data as usize & 0b111,
             HRAM_START..=HRAM_END => self.hram[address as usize - 0xFF80] = data,
             INTERRUPT_ENABLE_ADDRESS => self.interrupts.borrow_mut().write(address, data),
@@ -363,16 +362,15 @@ impl SystemBus for Mmu {
         }
     }
 
-    fn tick(&self) {
+    fn tick(&mut self) {
         self.system_state.borrow_mut().total_cycles += 1;
-
         self.tick_oam_dma();
 
         let speed_multiplier = self.system_state.borrow().speed_multiplier();
 
-        self.timer.borrow_mut().tick();
+        self.timer.tick();
         self.joypad.borrow_mut().tick();
-        self.ppu.borrow_mut().tick(speed_multiplier);
-        self.apu.borrow_mut().tick(speed_multiplier);
+        self.ppu.tick(speed_multiplier);
+        self.apu.tick(speed_multiplier);
     }
 }

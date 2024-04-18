@@ -18,7 +18,7 @@ impl Apu {
 }
 
 impl Memory for Apu {
-    fn read(&self, _address: u16) -> u8 {
+    fn read(&mut self, _address: u16) -> u8 {
         0xFF
     }
 

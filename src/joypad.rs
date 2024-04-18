@@ -78,7 +78,7 @@ impl Joypad {
 }
 
 impl Memory for Joypad {
-    fn read(&self, address: u16) -> u8 {
+    fn read(&mut self, address: u16) -> u8 {
         if address == JOYP_ADDRESS {
             return self.joyp;
         }

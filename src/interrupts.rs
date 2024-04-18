@@ -68,7 +68,7 @@ impl InterruptHandler {
 }
 
 impl Memory for InterruptHandler {
-    fn read(&self, address: u16) -> u8 {
+    fn read(&mut self, address: u16) -> u8 {
         match address {
             INTERRUPT_FLAG_ADDRESS => self.interrupt_flag & 0x1F,
             INTERRUPT_ENABLE_ADDRESS => self.interrupt_enable & 0x1F,

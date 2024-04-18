@@ -105,7 +105,7 @@ impl Mbc for NoMbc {
 }
 
 impl Memory for NoMbc {
-    fn read(&self, address: u16) -> u8 {
+    fn read(&mut self, address: u16) -> u8 {
         match address {
             0x0000..=0x7FFF => self.rom[address as usize],
             _ => {
@@ -226,7 +226,7 @@ impl Mbc for Mbc1 {
 }
 
 impl Memory for Mbc1 {
-    fn read(&self, address: u16) -> u8 {
+    fn read(&mut self, address: u16) -> u8 {
         match address {
             0x0000..=0x3FFF if !self.ram_banking_mode => self.rom[address as usize],
             0x0000..=0x3FFF if self.ram_banking_mode => {
@@ -392,7 +392,7 @@ impl Mbc for Mbc5 {
 }
 
 impl Memory for Mbc5 {
-    fn read(&self, address: u16) -> u8 {
+    fn read(&mut self, address: u16) -> u8 {
         match address {
             0x0000..=0x3FFF => self.rom[address as usize],
             0x4000..=0x7FFF => {

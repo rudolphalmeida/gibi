@@ -659,7 +659,7 @@ impl Ppu {
 }
 
 impl Memory for Ppu {
-    fn read(&self, address: u16) -> u8 {
+    fn read(&mut self, address: u16) -> u8 {
         match address {
             // TODO: VRAM/OAM disable access to CPU after timings are perfect
             VRAM_START..=VRAM_END => self.vram[vram_index(address, self.vram_bank & 0b1)],

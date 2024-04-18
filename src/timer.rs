@@ -99,7 +99,7 @@ impl Timer {
 }
 
 impl Memory for Timer {
-    fn read(&self, address: u16) -> u8 {
+    fn read(&mut self, address: u16) -> u8 {
         match address {
             DIV_ADDRESS => (self.div >> 8) as u8,
             TIMA_ADDRESS => self.tima,

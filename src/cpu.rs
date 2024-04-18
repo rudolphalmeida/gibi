@@ -2,11 +2,11 @@ use std::{cell::RefCell, rc::Rc};
 
 use paste::paste;
 
+use crate::{ExecutionState, SystemState};
 use crate::interrupts::{
-    InterruptHandler, InterruptType, INTERRUPT_ENABLE_ADDRESS, INTERRUPT_FLAG_ADDRESS,
+    INTERRUPT_ENABLE_ADDRESS, INTERRUPT_FLAG_ADDRESS, InterruptHandler, InterruptType,
 };
 use crate::memory::SystemBus;
-use crate::{ExecutionState, SystemState};
 
 pub(crate) struct Cpu {
     system_state: Rc<RefCell<SystemState>>,
@@ -1141,7 +1141,6 @@ impl<'a> ByteRegister<'a>
 #[cfg(test)]
 #[allow(non_snake_case)]
 pub mod tests {
-    use std::cell::Cell;
     use std::fmt::Display;
     use std::fs::File;
     use std::io;
@@ -1149,9 +1148,10 @@ pub mod tests {
     use std::path::Path;
     use std::str::FromStr;
 
-    use crate::memory::Memory;
     use num_traits;
     use serde::{Deserialize, Deserializer};
+
+    use crate::memory::Memory;
 
     use super::*;
 
@@ -1257,7 +1257,7 @@ pub mod tests {
 
     struct FlatMmu<'a> {
         memory: [u8; 0x10000],
-        ticked_cycle_count: Cell<u64>,
+        ticked_cycle_count: u64,
         expected_cycles: &'a [Option<CycleState>],
     }
 
@@ -1270,15 +1270,15 @@ pub mod tests {
 
             Self {
                 memory,
-                ticked_cycle_count: Cell::new(0),
+                ticked_cycle_count: 0,
                 expected_cycles,
             }
         }
     }
 
     impl Memory for FlatMmu<'_> {
-        fn read(&self, address: u16) -> u8 {
-            let expected_cycle = self.expected_cycles[self.ticked_cycle_count.get() as usize]
+        fn read(&mut self, address: u16) -> u8 {
+            let expected_cycle = self.expected_cycles[self.ticked_cycle_count as usize]
                 .clone()
                 .unwrap();
             assert_eq!(expected_cycle.0, address);
@@ -1292,7 +1292,7 @@ pub mod tests {
         }
 
         fn write(&mut self, address: u16, data: u8) {
-            let expected_cycle = self.expected_cycles[self.ticked_cycle_count.get() as usize]
+            let expected_cycle = self.expected_cycles[self.ticked_cycle_count as usize]
                 .clone()
                 .unwrap();
             assert_eq!(expected_cycle.0, address);
@@ -1305,7 +1305,7 @@ pub mod tests {
     }
 
     impl SystemBus for FlatMmu<'_> {
-        fn unticked_read(&self, address: u16) -> u8 {
+        fn unticked_read(&mut self, address: u16) -> u8 {
             self.memory[address as usize]
         }
 
@@ -1313,9 +1313,8 @@ pub mod tests {
             self.memory[address as usize] = data
         }
 
-        fn tick(&self) {
-            self.ticked_cycle_count
-                .set(self.ticked_cycle_count.get() + 1);
+        fn tick(&mut self) {
+            self.ticked_cycle_count += 1;
         }
     }
 

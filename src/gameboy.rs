@@ -91,7 +91,7 @@ impl Gameboy {
     }
 
     pub fn write_frame(&self, frame_writer: &mut access::AccessW<GameFrame>) {
-        self.mmu.ppu.borrow().write_frame(frame_writer);
+        self.mmu.ppu.write_frame(frame_writer);
     }
 
     pub fn keydown(&mut self, key: JoypadKeys) {
