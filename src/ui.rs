@@ -24,6 +24,7 @@ use std::thread::JoinHandle;
 const TEXTURE_OPTIONS: TextureOptions = TextureOptions {
     magnification: egui::TextureFilter::Nearest,
     minification: egui::TextureFilter::Nearest,
+    wrap_mode: egui::TextureWrapMode::ClampToEdge,
 };
 
 struct EmulatorCommCtx {

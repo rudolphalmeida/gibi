@@ -7,11 +7,11 @@ authors = ["Rudolph Almeida <rudolf1.almeida@gmail.com>"]
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-env_logger = "0.10.1"
+env_logger = "0.11.3"
 log = "0.4.20"
 paste = "1.0.7"
-eframe = { version = "0.24.0", features = ["persistence"] }
-rfd = "0.12.1"
+eframe = { version = "0.27.2", features = ["persistence"] }
+rfd = "0.14.1"
 cpal = "0.15.2"
 serde = { version = "1.0.192", features = ["derive"] }
 serde_json = "1.0.108"
