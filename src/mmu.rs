@@ -1,5 +1,3 @@
-use std::cell::RefCell;
-
 use crate::apu::{Apu, SOUND_END, SOUND_START, WAVE_END, WAVE_START};
 use crate::cartridge::CGB_BOOT_ROM;
 use crate::interrupts::{InterruptHandler, INTERRUPT_ENABLE_ADDRESS, INTERRUPT_FLAG_ADDRESS};
@@ -89,7 +87,7 @@ pub(crate) struct Mmu {
     hram: [u8; HRAM_SIZE],
 
     // DMAs
-    oam_dma: RefCell<Option<OamDma>>,
+    oam_dma: Option<OamDma>,
 }
 
 impl Mmu {
@@ -101,8 +99,6 @@ impl Mmu {
 
         let hram = [0x00; HRAM_SIZE];
         let serial = Serial::new();
-
-        let oam_dma = RefCell::new(None);
 
         let interrupts = InterruptHandler::default();
 
@@ -137,17 +133,16 @@ impl Mmu {
             timer,
             apu,
             interrupts,
-            oam_dma,
+            oam_dma: None,
         }
     }
 
     fn tick_oam_dma(&mut self) {
         // Perform DMA
         let mut oam_dma_completed = false;
-        if self.oam_dma.borrow().is_some() {
+        if self.oam_dma.is_some() {
             let (next_address, pending_cycles) = self
                 .oam_dma
-                .borrow()
                 .as_ref()
                 .map(|oam_dma| (oam_dma.next_address, oam_dma.pending_cycles))
                 .unwrap();
@@ -156,20 +151,20 @@ impl Mmu {
             let data = self.unticked_read(next_address);
             self.ppu.write(dest_address, data);
 
-            self.oam_dma.borrow_mut().as_mut().unwrap().next_address += 1;
+            self.oam_dma.as_mut().unwrap().next_address += 1;
             match pending_cycles.checked_sub(1) {
                 None => oam_dma_completed = true,
-                Some(x) => self.oam_dma.borrow_mut().as_mut().unwrap().pending_cycles = x,
+                Some(x) => self.oam_dma.as_mut().unwrap().pending_cycles = x,
             }
         }
 
         if oam_dma_completed {
-            *self.oam_dma.borrow_mut() = None;
+            self.oam_dma = None;
         }
     }
 
     fn oam_dma_in_progress(&self) -> bool {
-        self.oam_dma.borrow().is_some()
+        self.oam_dma.is_some()
     }
 
     fn wram_banked_read(&self, address: u16) -> u8 {
@@ -349,7 +344,7 @@ impl SystemBus for Mmu {
                     next_address: (data as u16) << 8,
                 };
 
-                *self.oam_dma.borrow_mut() = Some(oam_dma);
+                self.oam_dma = Some(oam_dma);
             }
             PPU_REGISTERS_START..=PPU_REGISTERS_END => self.ppu.write(address, data),
             VRAM_BANK_ADDRESS => self.ppu.write(address, data),
