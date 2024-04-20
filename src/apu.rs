@@ -1,3 +1,4 @@
+use crate::interrupts::InterruptHandler;
 use crate::memory::Memory;
 use crate::SystemState;
 
@@ -13,7 +14,7 @@ impl Apu {
         Apu {}
     }
 
-    pub fn tick(&mut self, _system_state: &mut SystemState) {
+    pub fn tick(&mut self, _system_state: &mut SystemState, _interrupts: &mut InterruptHandler) {
         // The APU is not affected by CGB double speed mode
     }
 }

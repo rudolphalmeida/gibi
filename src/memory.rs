@@ -1,3 +1,4 @@
+use crate::interrupts::InterruptHandler;
 use crate::SystemState;
 
 /// This trait defines all the memory-mapped components of the Game Boy
@@ -19,5 +20,7 @@ pub(crate) trait SystemBus: Memory {
     fn unticked_read(&mut self, address: u16) -> u8;
     fn unticked_write(&mut self, address: u16, data: u8);
     fn tick(&mut self);
+
     fn system_state(&mut self) -> &mut SystemState;
+    fn interrupt_handler(&mut self) -> &mut InterruptHandler;
 }

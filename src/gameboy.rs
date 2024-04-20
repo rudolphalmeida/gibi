@@ -1,16 +1,14 @@
 use std::path::PathBuf;
 
-use std::{cell::RefCell, rc::Rc};
 use std::{fs, io};
 
+use crate::cartridge::Cartridge;
 use crate::cpu::Registers;
 use crate::framebuffer::access;
-use crate::interrupts::InterruptHandler;
-use crate::joypad::{JoypadKeys};
-use crate::{cpu::Cpu, mmu::Mmu, GameFrame};
-use crate::{HardwareSupport};
-use crate::cartridge::Cartridge;
+use crate::joypad::JoypadKeys;
 use crate::memory::SystemBus;
+use crate::HardwareSupport;
+use crate::{cpu::Cpu, mmu::Mmu, GameFrame};
 
 const CYCLES_PER_FRAME: u64 = 17556;
 
@@ -36,16 +34,9 @@ impl Gameboy {
             HardwareSupport::DmgCompat => log::info!("Game is running in DMG compatibility mode"),
         }
 
-        let interrupts = Rc::new(RefCell::new(InterruptHandler::default()));
-        let mmu = Mmu::new(
-            cart,
-            Rc::clone(&interrupts),
-        );
-        let cpu = Cpu::new(interrupts);
-        Gameboy {
-            mmu,
-            cpu,
-        }
+        let mmu = Mmu::new(cart);
+        let cpu = Cpu::new();
+        Gameboy { mmu, cpu }
     }
 
     // TODO: Extract out a debug info type

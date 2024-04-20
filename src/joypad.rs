@@ -1,8 +1,4 @@
-use std::cell::RefCell;
-use std::rc::Rc;
-
 use crate::interrupts::{InterruptHandler, InterruptType};
-
 use crate::memory::Memory;
 
 pub(crate) const JOYP_ADDRESS: u16 = 0xFF00;
@@ -11,31 +7,29 @@ pub(crate) const JOYPAD_POLL_CYCLES: u64 = 65536; // 64Hz
 #[derive(Debug, Copy, Clone)]
 pub enum JoypadKeys {
     Right = 1,
-    Left = (1 << 1),
-    Up = (1 << 2),
-    Down = (1 << 3),
-    A = (1 << 4),
-    B = (1 << 5),
-    Select = (1 << 6),
-    Start = (1 << 7),
+    Left = 1 << 1,
+    Up = 1 << 2,
+    Down = 1 << 3,
+    A = 1 << 4,
+    B = 1 << 5,
+    Select = 1 << 6,
+    Start = 1 << 7,
 }
 
 pub(crate) struct Joypad {
     keys: u8,
     joyp: u8,
-
     cycles: u64,
-
-    interrupts: Rc<RefCell<InterruptHandler>>,
+    queue_interrupt: bool,
 }
 
 impl Joypad {
-    pub fn new(interrupts: Rc<RefCell<InterruptHandler>>) -> Self {
+    pub fn new() -> Self {
         Joypad {
             keys: 0xFF,
             joyp: 0xFF,
             cycles: 0,
-            interrupts,
+            queue_interrupt: false,
         }
     }
 
@@ -47,8 +41,13 @@ impl Joypad {
         self.keys |= key as u8;
     }
 
-    pub(crate) fn tick(&mut self) {
+    pub(crate) fn tick(&mut self, interrupts: &mut InterruptHandler) {
         self.cycles += 4;
+
+        if self.queue_interrupt {
+            interrupts.request_interrupt(InterruptType::Joypad);
+            self.queue_interrupt = false;
+        }
 
         // The Joypad polls for input every 64Hz
         if self.cycles >= JOYPAD_POLL_CYCLES {
@@ -68,9 +67,7 @@ impl Joypad {
         }
 
         if (self.joyp & !current & 0x0F) != 0 {
-            self.interrupts
-                .borrow_mut()
-                .request_interrupt(InterruptType::Joypad);
+            self.queue_interrupt = true;
         }
 
         self.joyp = current;

@@ -1,26 +1,19 @@
-use std::{cell::RefCell, rc::Rc};
-
 use paste::paste;
 
-use crate::{ExecutionState};
 use crate::interrupts::{
-    INTERRUPT_ENABLE_ADDRESS, INTERRUPT_FLAG_ADDRESS, InterruptHandler, InterruptType,
+    InterruptType, INTERRUPT_ENABLE_ADDRESS, INTERRUPT_FLAG_ADDRESS,
 };
 use crate::memory::SystemBus;
+use crate::ExecutionState;
 
 pub(crate) struct Cpu {
     pub(crate) regs: Registers,
-
     ime: bool,
-    interrupts: Rc<RefCell<InterruptHandler>>,
-
     previous_execution_state: Option<ExecutionState>,
 }
 
 impl Cpu {
-    pub fn new(
-        interrupts: Rc<RefCell<InterruptHandler>>,
-    ) -> Self {
+    pub fn new() -> Self {
         let regs = Default::default();
         let ime = true;
 
@@ -28,7 +21,6 @@ impl Cpu {
         Cpu {
             regs,
             ime,
-            interrupts,
             previous_execution_state: None,
         }
     }
@@ -87,9 +79,7 @@ impl Cpu {
         self.ime = false;
         let highest_priority_interrupt = ii.trailing_zeros();
         let interrupt = InterruptType::from_index(highest_priority_interrupt);
-        self.interrupts
-            .borrow_mut()
-            .reset_interrupt_request(interrupt);
+        mmu.interrupt_handler().reset_interrupt_request(interrupt);
 
         // Push PC to stack
         let [upper, lower] = self.regs.pc.to_be_bytes();
@@ -113,12 +103,16 @@ impl Cpu {
             0x10 => self.stop(mmu),
             0x01 | 0x11 | 0x21 | 0x31 => self.ld_r16_u16(opcode_byte, mmu),
             0x80..=0xBF => self.alu_a_r8(opcode_byte, mmu),
-            0xC6 | 0xD6 | 0xE6 | 0xF6 | 0xCE | 0xDE | 0xEE | 0xFE => self.alu_a_u8(opcode_byte, mmu),
+            0xC6 | 0xD6 | 0xE6 | 0xF6 | 0xCE | 0xDE | 0xEE | 0xFE => {
+                self.alu_a_u8(opcode_byte, mmu)
+            }
             0x02 | 0x12 | 0x22 | 0x32 => self.ld_r16_a(opcode_byte, mmu),
             0xCB => self.cb_prefixed_opcodes(opcode_byte, mmu),
             0x20 | 0x30 | 0x28 | 0x38 => self.jr_cc_i8(opcode_byte, mmu),
             0x18 => self.jr_i8(opcode_byte, mmu),
-            0x06 | 0x16 | 0x26 | 0x36 | 0x0E | 0x1E | 0x2E | 0x3E => self.ld_r8_u8(opcode_byte, mmu),
+            0x06 | 0x16 | 0x26 | 0x36 | 0x0E | 0x1E | 0x2E | 0x3E => {
+                self.ld_r8_u8(opcode_byte, mmu)
+            }
             0x04 | 0x14 | 0x24 | 0x34 | 0x0C | 0x1C | 0x2C | 0x3C => self.inc_r8(opcode_byte, mmu),
             0x05 | 0x15 | 0x25 | 0x35 | 0x0D | 0x1D | 0x2D | 0x3D => self.dec_r8(opcode_byte, mmu),
             0x76 => self.halt(opcode_byte, mmu),
@@ -1102,8 +1096,7 @@ enum ByteRegister<'a> {
     MemoryReference(u16),
 }
 
-impl<'a> ByteRegister<'a>
-{
+impl<'a> ByteRegister<'a> {
     pub fn for_r8(bits: u8, cpu: &'a mut Cpu) -> Self {
         match bits {
             0 => ByteRegister::Register(&mut cpu.regs.b),
@@ -1145,6 +1138,7 @@ pub mod tests {
 
     use num_traits;
     use serde::{Deserialize, Deserializer};
+    use crate::interrupts::InterruptHandler;
 
     use crate::memory::Memory;
     use crate::SystemState;
@@ -1255,12 +1249,14 @@ pub mod tests {
         ticked_cycle_count: u64,
         expected_cycles: &'a [Option<CycleState>],
         system_state: SystemState,
+        interrupts: InterruptHandler,
     }
 
     impl<'a> FlatMmu<'a> {
         pub fn new(ram_states: &[RamState], expected_cycles: &'a [Option<CycleState>]) -> Self {
             let mut memory = [0x00; 0x10000];
             let system_state = SystemState::default();
+            let interrupts = InterruptHandler::default();
 
             for ram_state in ram_states {
                 memory[ram_state.0 as usize] = ram_state.1;
@@ -1270,7 +1266,8 @@ pub mod tests {
                 memory,
                 ticked_cycle_count: 0,
                 expected_cycles,
-                system_state
+                system_state,
+                interrupts,
             }
         }
     }
@@ -1319,15 +1316,15 @@ pub mod tests {
         fn system_state(&mut self) -> &mut SystemState {
             &mut self.system_state
         }
+
+        fn interrupt_handler(&mut self) -> &mut InterruptHandler {
+            &mut self.interrupts
+        }
     }
 
     fn run_test_case(test_case: &OpcodeTestCase) {
-        let mut mmu = FlatMmu::new(
-            &test_case.initial.ram,
-            &test_case.cycles,
-        );
-        let interrupts = Rc::new(RefCell::new(InterruptHandler::default()));
-        let mut cpu = Cpu::new(interrupts);
+        let mut mmu = FlatMmu::new(&test_case.initial.ram, &test_case.cycles);
+        let mut cpu = Cpu::new();
         cpu.regs = Registers::from(test_case.initial.cpu);
         cpu.execute_opcode(&mut mmu);
 

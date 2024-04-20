@@ -6,10 +6,10 @@ pub(crate) const INTERRUPT_ENABLE_ADDRESS: u16 = 0xFFFF;
 #[derive(Debug, Copy, Clone)]
 pub(crate) enum InterruptType {
     Vblank = 1,
-    LcdStat = (1 << 1),
-    Timer = (1 << 2),
-    Serial = (1 << 3),
-    Joypad = (1 << 4),
+    LcdStat = 1 << 1,
+    Timer = 1 << 2,
+    Serial = 1 << 3,
+    Joypad = 1 << 4,
 }
 
 impl InterruptType {

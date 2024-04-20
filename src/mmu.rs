@@ -1,5 +1,4 @@
 use std::cell::RefCell;
-use std::rc::Rc;
 
 use crate::apu::{Apu, SOUND_END, SOUND_START, WAVE_END, WAVE_START};
 use crate::cartridge::CGB_BOOT_ROM;
@@ -78,8 +77,8 @@ pub(crate) struct Mmu {
     joypad: Joypad,
     timer: Timer,
     serial: Serial,
-    interrupts: Rc<RefCell<InterruptHandler>>,
 
+    pub(crate) interrupts: InterruptHandler,
     pub(crate) system_state: SystemState,
 
     // Only two banks are used in DMG mode
@@ -96,7 +95,6 @@ pub(crate) struct Mmu {
 impl Mmu {
     pub fn new(
         cart: Cartridge,
-        interrupts: Rc<RefCell<InterruptHandler>>,
     ) -> Self {
         let wram = [0x00; WRAM_BANK_SIZE * 8]; // 32KB
         let wram_bank = 0x1;
@@ -106,10 +104,12 @@ impl Mmu {
 
         let oam_dma = RefCell::new(None);
 
-        let timer = Timer::new(Rc::clone(&interrupts));
-        let ppu = Ppu::new(Rc::clone(&interrupts));
+        let interrupts = InterruptHandler::default();
+
+        let timer = Timer::new();
+        let ppu = Ppu::new();
         let apu = Apu::new();
-        let joypad = Joypad::new(Rc::clone(&interrupts));
+        let joypad = Joypad::new();
 
         let system_state = SystemState {
             execution_state: ExecutionState::ExecutingProgram,
@@ -302,7 +302,7 @@ impl SystemBus for Mmu {
             JOYP_ADDRESS => return self.joypad.read(address),
             SERIAL_START..=SERIAL_END => return self.serial.read(address),
             TIMER_START..=TIMER_END => return self.timer.read(address),
-            INTERRUPT_FLAG_ADDRESS => return self.interrupts.borrow_mut().read(address),
+            INTERRUPT_FLAG_ADDRESS => return self.interrupts.read(address),
             SOUND_START..=SOUND_END => return self.apu.read(address),
             WAVE_START..=WAVE_END => return self.apu.read(address),
             OAM_DMA_ADDRESS => return 0xFF, // TODO: Check if this is correct
@@ -315,7 +315,7 @@ impl SystemBus for Mmu {
             PALETTE_START..=PALETTE_END => return self.ppu.read(address),
             WRAM_BANK_SELECT => return self.wram_bank as u8,
             HRAM_START..=HRAM_END => return self.hram[(address - HRAM_START) as usize],
-            INTERRUPT_ENABLE_ADDRESS => return self.interrupts.borrow_mut().read(address),
+            INTERRUPT_ENABLE_ADDRESS => return self.interrupts.read(address),
             _ => log::error!("Unknown address to Mmu::read {:#06X}", address),
         }
         0xFF
@@ -340,7 +340,7 @@ impl SystemBus for Mmu {
             JOYP_ADDRESS => self.joypad.write(address, data),
             SERIAL_START..=SERIAL_END => self.serial.write(address, data),
             TIMER_START..=TIMER_END => self.timer.write(address, data),
-            INTERRUPT_FLAG_ADDRESS => self.interrupts.borrow_mut().write(address, data),
+            INTERRUPT_FLAG_ADDRESS => self.interrupts.write(address, data),
             SOUND_START..=SOUND_END => self.apu.write(address, data),
             WAVE_START..=WAVE_END => self.apu.write(address, data),
             OAM_DMA_ADDRESS => {
@@ -381,7 +381,7 @@ impl SystemBus for Mmu {
             PALETTE_START..=PALETTE_END => self.ppu.write(address, data),
             WRAM_BANK_SELECT => self.wram_bank = data as usize & 0b111,
             HRAM_START..=HRAM_END => self.hram[address as usize - 0xFF80] = data,
-            INTERRUPT_ENABLE_ADDRESS => self.interrupts.borrow_mut().write(address, data),
+            INTERRUPT_ENABLE_ADDRESS => self.interrupts.write(address, data),
             _ => log::error!("Unknown address to Mmu::write {:#06X}", address),
         }
     }
@@ -390,13 +390,17 @@ impl SystemBus for Mmu {
         self.system_state.total_cycles += 1;
         self.tick_oam_dma();
 
-        self.timer.tick(&mut self.system_state);
-        self.joypad.tick();
-        self.ppu.tick(&mut self.system_state);
-        self.apu.tick(&mut self.system_state);
+        self.timer.tick(&mut self.system_state, &mut self.interrupts);
+        self.joypad.tick(&mut self.interrupts);
+        self.ppu.tick(&mut self.system_state, &mut self.interrupts);
+        self.apu.tick(&mut self.system_state, &mut self.interrupts);
     }
 
     fn system_state(&mut self) -> &mut SystemState {
         &mut self.system_state
+    }
+
+    fn interrupt_handler(&mut self) -> &mut InterruptHandler {
+        &mut self.interrupts
     }
 }

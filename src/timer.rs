@@ -1,8 +1,6 @@
+use crate::{ExecutionState, SystemState};
 use crate::interrupts::{InterruptHandler, InterruptType};
 use crate::memory::Memory;
-use crate::{ExecutionState, SystemState};
-use std::cell::RefCell;
-use std::rc::Rc;
 
 pub const TIMER_START: u16 = 0xFF04;
 pub const TIMER_END: u16 = 0xFF07;
@@ -24,14 +22,10 @@ pub(crate) struct Timer {
     /// t-cycle within that m-cycle TIMA overflowed and exactly 4 t-cycles later
     /// reset it with TMA
     tima_overflowed_last_cycle: Option<i32>,
-
-    interrupts: Rc<RefCell<InterruptHandler>>,
 }
 
 impl Timer {
-    pub fn new(
-        interrupts: Rc<RefCell<InterruptHandler>>,
-    ) -> Self {
+    pub fn new() -> Self {
         Timer {
             div: 0x0000,
             tima: 0x00,
@@ -40,12 +34,10 @@ impl Timer {
 
             previous_tima_inc_result: false,
             tima_overflowed_last_cycle: None,
-
-            interrupts,
         }
     }
 
-    pub fn tick(&mut self, system_state: &mut SystemState) {
+    pub fn tick(&mut self, system_state: &mut SystemState, interrupts: &mut InterruptHandler) {
         let prev_i = if let Some(i) = self.tima_overflowed_last_cycle {
             i
         } else {
@@ -55,8 +47,7 @@ impl Timer {
         for i in 0..4 {
             self.div = self.div.wrapping_add(1);
             if self.div == 0x0000
-                && system_state.execution_state
-                    == ExecutionState::PreparingSpeedSwitch
+                && system_state.execution_state == ExecutionState::PreparingSpeedSwitch
             {
                 // DIV overflowed. Complete speed switch
                 system_state.key1 ^= 0x81; // Toggle speed and reset switch request
@@ -66,11 +57,7 @@ impl Timer {
             // Reset TIMA if it overflowed exactly 4 t-cycles ago
             if prev_i == i {
                 self.tima = self.tma;
-
-                self.interrupts
-                    .borrow_mut()
-                    .request_interrupt(InterruptType::Timer);
-
+                interrupts.request_interrupt(InterruptType::Timer);
                 self.tima_overflowed_last_cycle = None;
             }
 

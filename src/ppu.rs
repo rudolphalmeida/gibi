@@ -1,13 +1,9 @@
-use std::cell::RefCell;
-use std::rc::Rc;
-
-
+use crate::{GameFrame, SystemState};
 use crate::framebuffer::access;
 use crate::interrupts::{InterruptHandler, InterruptType};
 use crate::memory::Memory;
 use crate::palettes::Palette;
 use crate::textures::RGBA;
-use crate::{GameFrame, SystemState};
 
 pub(crate) const VRAM_START: u16 = 0x8000;
 pub(crate) const VRAM_END: u16 = 0x9FFF;
@@ -117,17 +113,13 @@ pub(crate) struct Ppu {
     obp0: u8,
     obp1: u8,
 
-    interrupts: Rc<RefCell<InterruptHandler>>,
-
     frame: GameFrame,
     // Index in palette of each color that was used for background
     bg_color_indices: Vec<RenderedBackgroundPixel>,
 }
 
 impl Ppu {
-    pub fn new(
-        interrupts: Rc<RefCell<InterruptHandler>>,
-    ) -> Self {
+    pub fn new() -> Self {
         let mut stat: LcdStat = Default::default();
         stat.set_mode(LcdStatus::OamSearch);
 
@@ -152,13 +144,12 @@ impl Ppu {
             ocps: 0x00,
             color_bg_palettes: [0xFF; COLOR_PALETTE_SIZE],
             color_obj_palettes: [0xFF; COLOR_PALETTE_SIZE],
-            interrupts,
             frame: Default::default(),
             bg_color_indices: vec![Default::default(); LCD_WIDTH * LCD_HEIGHT],
         }
     }
 
-    pub fn tick(&mut self, system_state: &mut SystemState) {
+    pub fn tick(&mut self, system_state: &mut SystemState, interrupts: &mut InterruptHandler) {
         // Tick 4 times if single speed mode and 2 times if double speed mode
         // The LCD controller speed does not change with the speed mode
         let cycles_to_tick = DOTS_PER_TICK / system_state.speed_divider();
@@ -169,13 +160,13 @@ impl Ppu {
                 LcdStatus::OamSearch if self.dots_in_line == OAM_SEARCH_DOTS => {
                     let old_stat = self.stat;
                     self.stat.set_mode(LcdStatus::Rendering);
-                    self.assert_lcd_stat(old_stat);
+                    self.assert_lcd_stat(old_stat, interrupts);
                 }
                 LcdStatus::Rendering if self.dots_in_line == RENDERING_DOTS => {
                     self.render_line(system_state);
                     let old_stat = self.stat;
                     self.stat.set_mode(LcdStatus::Hblank);
-                    self.assert_lcd_stat(old_stat);
+                    self.assert_lcd_stat(old_stat, interrupts);
                 }
                 LcdStatus::Hblank if self.dots_in_line == SCANLINE_DOTS => {
                     self.ly += 1;
@@ -192,14 +183,10 @@ impl Ppu {
                                 .stat
                                 .is_stat_interrupt_source_enabled(LcdStatSource::Mode1Vblank)
                         {
-                            self.interrupts
-                                .borrow_mut()
-                                .request_interrupt(InterruptType::LcdStat);
+                            interrupts.request_interrupt(InterruptType::LcdStat);
                         }
 
-                        self.interrupts
-                            .borrow_mut()
-                            .request_interrupt(InterruptType::Vblank);
+                        interrupts.request_interrupt(InterruptType::Vblank);
 
                         LcdStatus::Vblank
                     } else {
@@ -208,32 +195,32 @@ impl Ppu {
                     };
 
                     self.stat.set_mode(next_mode);
-                    self.assert_lcd_stat(old_stat);
+                    self.assert_lcd_stat(old_stat, interrupts);
 
                     // The LY-LYC compare interrupt is actually delayed by 1 CPU cycle
                     let old_stat = self.stat;
                     self.stat.set_ly_lyc_state(self.ly == self.lyc);
-                    self.assert_lcd_stat(old_stat);
+                    self.assert_lcd_stat(old_stat, interrupts);
                 }
                 LcdStatus::Vblank if self.ly == 153 && self.dots_in_line == 8 => {
                     self.ly = 0;
                     let old_stat = self.stat;
                     self.stat.set_ly_lyc_state(self.ly == self.lyc);
-                    self.assert_lcd_stat(old_stat);
+                    self.assert_lcd_stat(old_stat, interrupts);
                 }
                 LcdStatus::Vblank if self.ly == 0 && self.dots_in_line == SCANLINE_DOTS => {
                     self.dots_in_line = 0;
                     let old_stat = self.stat;
                     self.stat.set_mode(LcdStatus::OamSearch);
                     self.stat.set_ly_lyc_state(self.ly == self.lyc);
-                    self.assert_lcd_stat(old_stat);
+                    self.assert_lcd_stat(old_stat, interrupts);
                 }
                 LcdStatus::Vblank if self.dots_in_line == SCANLINE_DOTS => {
                     self.ly += 1;
                     self.dots_in_line = 0;
                     let old_stat = self.stat;
                     self.stat.set_ly_lyc_state(self.ly == self.lyc);
-                    self.assert_lcd_stat(old_stat);
+                    self.assert_lcd_stat(old_stat, interrupts);
                 }
                 _ => {}
             }
@@ -244,11 +231,9 @@ impl Ppu {
         *frame_writer.get().write() = self.frame.clone();
     }
 
-    fn assert_lcd_stat(&mut self, old_stat: LcdStat) {
+    fn assert_lcd_stat(&mut self, old_stat: LcdStat, interrupts: &mut InterruptHandler) {
         if !old_stat.is_stat_irq_asserted() && self.stat.is_stat_irq_asserted() {
-            self.interrupts
-                .borrow_mut()
-                .request_interrupt(InterruptType::LcdStat);
+            interrupts.request_interrupt(InterruptType::LcdStat);
         }
     }
 
@@ -512,8 +497,7 @@ impl Ppu {
             let tile_line_data_start_address =
                 sprite_tile_address + (sprite_line_offset as u16 * 2);
 
-            let obj_palette_number =
-                sprite.palette(system_state.dmg_compat_mode()) as usize;
+            let obj_palette_number = sprite.palette(system_state.dmg_compat_mode()) as usize;
             let palette_spec =
                 &self.color_obj_palettes[(obj_palette_number * 8)..((obj_palette_number + 1) * 8)];
             let palette = Palette::new_color(palette_spec);
@@ -625,7 +609,7 @@ impl Ppu {
             }
         }
 
-        sprites.truncate(10); // The GameBoy LCD can only show 10 sprites per scanline
+        sprites.truncate(10); // The Game Boy LCD can only show 10 sprites per scanline
         sprites
     }
 
@@ -765,13 +749,13 @@ impl Sprite {
 
 // LCDC Implementation
 enum LcdcFlags {
-    PpuEnabled = (1 << 7),
-    WindowTilemapArea = (1 << 6),
-    WindowEnabled = (1 << 5),
-    BgAndWindowTileDataArea = (1 << 4),
-    BgTilemapArea = (1 << 3),
-    ObjSize = (1 << 2),
-    ObjEnabled = (1 << 1),
+    PpuEnabled = 1 << 7,
+    WindowTilemapArea = 1 << 6,
+    WindowEnabled = 1 << 5,
+    BgAndWindowTileDataArea = 1 << 4,
+    BgTilemapArea = 1 << 3,
+    ObjSize = 1 << 2,
+    ObjEnabled = 1 << 1,
     BgAndWindowEnabled = 1,
 }
 
@@ -830,10 +814,10 @@ impl Lcdc {
 
 // LCD STAT Implementation
 pub(crate) enum LcdStatSource {
-    LycLyEqual = (1 << 6),
-    Mode2Oam = (1 << 5),
-    Mode1Vblank = (1 << 4),
-    Mode0Hblank = (1 << 3),
+    LycLyEqual = 1 << 6,
+    Mode2Oam = 1 << 5,
+    Mode1Vblank = 1 << 4,
+    Mode0Hblank = 1 << 3,
 }
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
