@@ -10,7 +10,7 @@ use crate::ppu::{
 };
 use crate::serial::{Serial, SERIAL_END, SERIAL_START};
 use crate::timer::{Timer, TIMER_END, TIMER_START};
-use crate::{HardwareSupport, SystemState};
+use crate::{ExecutionState, HardwareSupport, HdmaState, SystemState};
 
 use crate::joypad::JoypadKeys;
 use crate::memory::SystemBus;
@@ -80,7 +80,7 @@ pub(crate) struct Mmu {
     serial: Serial,
     interrupts: Rc<RefCell<InterruptHandler>>,
 
-    system_state: Rc<RefCell<SystemState>>,
+    pub(crate) system_state: SystemState,
 
     // Only two banks are used in DMG mode
     // CGB mode uses all 8, with 0 being fixed, and 1-7 being switchable
@@ -96,7 +96,6 @@ pub(crate) struct Mmu {
 impl Mmu {
     pub fn new(
         cart: Cartridge,
-        system_state: Rc<RefCell<SystemState>>,
         interrupts: Rc<RefCell<InterruptHandler>>,
     ) -> Self {
         let wram = [0x00; WRAM_BANK_SIZE * 8]; // 32KB
@@ -107,10 +106,24 @@ impl Mmu {
 
         let oam_dma = RefCell::new(None);
 
-        let timer = Timer::new(Rc::clone(&interrupts), Rc::clone(&system_state));
-        let ppu = Ppu::new(Rc::clone(&interrupts), Rc::clone(&system_state));
+        let timer = Timer::new(Rc::clone(&interrupts));
+        let ppu = Ppu::new(Rc::clone(&interrupts));
         let apu = Apu::new();
         let joypad = Joypad::new(Rc::clone(&interrupts));
+
+        let system_state = SystemState {
+            execution_state: ExecutionState::ExecutingProgram,
+            hardware_support: cart.hardware_supported(),
+            carry_over_cycles: 0,
+            total_cycles: 0,
+            key1: 0x00,
+            bootrom_mapped: true,
+            hdma_state: HdmaState {
+                source_addr: 0xFFFF,
+                dest_addr: 0xFFFF,
+                hdma_stat: 0x00,
+            },
+        };
 
         Self {
             cart,
@@ -188,14 +201,14 @@ impl Mmu {
     fn on_hdma5_write(&mut self, data: u8) {
         if (data & 0x80) == 0 {
             // GDMA
-            if self.system_state.borrow().hdma_state.is_hdma_active() {
+            if self.system_state.hdma_state.is_hdma_active() {
                 // If HDMA is active, cancel it keeping the remaining length
-                self.system_state.borrow_mut().hdma_state.hdma_stat |= 0x80;
+                self.system_state.hdma_state.hdma_stat |= 0x80;
             } else {
                 let len = ((data as usize & 0x7F) + 1) * 0x10;
-                let mut src_addr = self.system_state.borrow().hdma_state.source_addr & 0xFFF0;
+                let mut src_addr = self.system_state.hdma_state.source_addr & 0xFFF0;
                 let mut dest_addr =
-                    (self.system_state.borrow().hdma_state.dest_addr & 0x1FF0) | 0x8000;
+                    (self.system_state.hdma_state.dest_addr & 0x1FF0) | 0x8000;
 
                 for _ in 0..len {
                     let value = self.unticked_read(src_addr);
@@ -204,7 +217,7 @@ impl Mmu {
                     dest_addr += 1;
                 }
 
-                self.system_state.borrow_mut().hdma_state.hdma_stat = 0xFF;
+                self.system_state.hdma_state.hdma_stat = 0xFF;
             }
         } else {
             // HDMA
@@ -221,8 +234,8 @@ impl Mmu {
     }
 
     fn disable_bootrom(&mut self, data: u8) {
-        self.system_state.borrow_mut().bootrom_mapped = data == 0x00;
-        if !self.system_state.borrow().bootrom_mapped {
+        self.system_state.bootrom_mapped = data == 0x00;
+        if !self.system_state.bootrom_mapped {
             log::info!("Boot ROM disabled");
         }
     }
@@ -270,7 +283,7 @@ impl SystemBus for Mmu {
     fn unticked_read(&mut self, address: u16) -> u8 {
         match address {
             CART_HEADER_START..=CART_HEADER_END => return self.cart.read(address),
-            BOOT_ROM_START..=BOOT_ROM_END if self.system_state.borrow().bootrom_mapped => {
+            BOOT_ROM_START..=BOOT_ROM_END if self.system_state.bootrom_mapped => {
                 return CGB_BOOT_ROM[address as usize]
             }
             CART_ROM_START..=CART_ROM_END => return self.cart.read(address),
@@ -295,10 +308,10 @@ impl SystemBus for Mmu {
             OAM_DMA_ADDRESS => return 0xFF, // TODO: Check if this is correct
             PPU_REGISTERS_START..=PPU_REGISTERS_END => return self.ppu.read(address),
             VRAM_BANK_ADDRESS => return self.ppu.read(address),
-            KEY1 => return self.system_state.borrow().key1,
-            BOOTROM_DISABLE => return u8::from(self.system_state.borrow().bootrom_mapped),
+            KEY1 => return self.system_state.key1,
+            BOOTROM_DISABLE => return u8::from(self.system_state.bootrom_mapped),
             HDMA1..=HDMA4 => return 0xFF,
-            HDMA5 => return self.system_state.borrow().hdma_state.hdma_stat,
+            HDMA5 => return self.system_state.hdma_state.hdma_stat,
             PALETTE_START..=PALETTE_END => return self.ppu.read(address),
             WRAM_BANK_SELECT => return self.wram_bank as u8,
             HRAM_START..=HRAM_END => return self.hram[(address - HRAM_START) as usize],
@@ -311,7 +324,7 @@ impl SystemBus for Mmu {
     fn unticked_write(&mut self, address: u16, data: u8) {
         match address {
             CART_HEADER_START..=CART_HEADER_END => self.cart.write(address, data),
-            BOOT_ROM_START..=BOOT_ROM_END if self.system_state.borrow().bootrom_mapped => {
+            BOOT_ROM_START..=BOOT_ROM_END if self.system_state.bootrom_mapped => {
                 log::error!("Write to boot ROM {:#06X} with {:#04X}", address, data)
             }
             CART_ROM_START..=CART_ROM_END => self.cart.write(address, data),
@@ -341,31 +354,27 @@ impl SystemBus for Mmu {
             PPU_REGISTERS_START..=PPU_REGISTERS_END => self.ppu.write(address, data),
             VRAM_BANK_ADDRESS => self.ppu.write(address, data),
             KEY1 => {
-                let key1 = (self.system_state.borrow().key1 & 0x80) | (data & 0x7F);
-                self.system_state.borrow_mut().key1 = key1;
+                let key1 = (self.system_state.key1 & 0x80) | (data & 0x7F);
+                self.system_state.key1 = key1;
             }
             BOOTROM_DISABLE => self.disable_bootrom(data),
             HDMA1 => self
                 .system_state
-                .borrow_mut()
                 .hdma_state
                 .write_src_high(data),
             HDMA2 => self
                 .system_state
-                .borrow_mut()
                 .hdma_state
                 .write_src_low(data),
             HDMA3 => self
                 .system_state
-                .borrow_mut()
                 .hdma_state
                 .write_dest_high(data),
             HDMA4 => self
                 .system_state
-                .borrow_mut()
                 .hdma_state
                 .write_dest_low(data),
-            HDMA5 if self.system_state.borrow().hardware_support != HardwareSupport::DmgCompat => {
+            HDMA5 if self.system_state.hardware_support != HardwareSupport::DmgCompat => {
                 self.on_hdma5_write(data)
             }
             HDMA5 => {}
@@ -378,14 +387,16 @@ impl SystemBus for Mmu {
     }
 
     fn tick(&mut self) {
-        self.system_state.borrow_mut().total_cycles += 1;
+        self.system_state.total_cycles += 1;
         self.tick_oam_dma();
 
-        let speed_multiplier = self.system_state.borrow().speed_multiplier();
-
-        self.timer.tick();
+        self.timer.tick(&mut self.system_state);
         self.joypad.tick();
-        self.ppu.tick(speed_multiplier);
-        self.apu.tick(speed_multiplier);
+        self.ppu.tick(&mut self.system_state);
+        self.apu.tick(&mut self.system_state);
+    }
+
+    fn system_state(&mut self) -> &mut SystemState {
+        &mut self.system_state
     }
 }

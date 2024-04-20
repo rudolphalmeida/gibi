@@ -103,7 +103,7 @@ struct SystemState {
 }
 
 impl SystemState {
-    pub(crate) fn speed_multiplier(&self) -> u64 {
+    pub(crate) fn speed_divider(&self) -> u64 {
         (((self.key1 & 0x80) >> 7) + 1).into()
     }
 

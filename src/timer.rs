@@ -26,13 +26,11 @@ pub(crate) struct Timer {
     tima_overflowed_last_cycle: Option<i32>,
 
     interrupts: Rc<RefCell<InterruptHandler>>,
-    system_state: Rc<RefCell<SystemState>>,
 }
 
 impl Timer {
     pub fn new(
         interrupts: Rc<RefCell<InterruptHandler>>,
-        system_state: Rc<RefCell<SystemState>>,
     ) -> Self {
         Timer {
             div: 0x0000,
@@ -44,11 +42,10 @@ impl Timer {
             tima_overflowed_last_cycle: None,
 
             interrupts,
-            system_state,
         }
     }
 
-    pub fn tick(&mut self) {
+    pub fn tick(&mut self, system_state: &mut SystemState) {
         let prev_i = if let Some(i) = self.tima_overflowed_last_cycle {
             i
         } else {
@@ -58,11 +55,10 @@ impl Timer {
         for i in 0..4 {
             self.div = self.div.wrapping_add(1);
             if self.div == 0x0000
-                && self.system_state.borrow().execution_state
+                && system_state.execution_state
                     == ExecutionState::PreparingSpeedSwitch
             {
                 // DIV overflowed. Complete speed switch
-                let mut system_state = self.system_state.borrow_mut();
                 system_state.key1 ^= 0x81; // Toggle speed and reset switch request
                 system_state.execution_state = ExecutionState::ExecutingProgram;
             }

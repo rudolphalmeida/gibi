@@ -2,15 +2,13 @@ use std::{cell::RefCell, rc::Rc};
 
 use paste::paste;
 
-use crate::{ExecutionState, SystemState};
+use crate::{ExecutionState};
 use crate::interrupts::{
     INTERRUPT_ENABLE_ADDRESS, INTERRUPT_FLAG_ADDRESS, InterruptHandler, InterruptType,
 };
 use crate::memory::SystemBus;
 
 pub(crate) struct Cpu {
-    system_state: Rc<RefCell<SystemState>>,
-
     pub(crate) regs: Registers,
 
     ime: bool,
@@ -22,14 +20,12 @@ pub(crate) struct Cpu {
 impl Cpu {
     pub fn new(
         interrupts: Rc<RefCell<InterruptHandler>>,
-        system_state: Rc<RefCell<SystemState>>,
     ) -> Self {
         let regs = Default::default();
         let ime = true;
 
         log::debug!("Initialized CPU for CGB");
         Cpu {
-            system_state,
             regs,
             ime,
             interrupts,
@@ -48,7 +44,7 @@ impl Cpu {
             self.handle_interrupts(mmu);
         }
 
-        let execution_state = self.system_state.borrow().execution_state;
+        let execution_state = mmu.system_state().execution_state;
         match execution_state {
               ExecutionState::Halted                   // CPU does not execute when halted
             | ExecutionState::PreparingSpeedSwitch     // switching speed
@@ -80,7 +76,7 @@ impl Cpu {
         // When there are pending interrupts, the CPU starts executing again and jumps to the interrupt
         // with the highest priority
         if let Some(previous_execution_state) = self.previous_execution_state {
-            self.system_state.borrow_mut().execution_state = previous_execution_state;
+            mmu.system_state().execution_state = previous_execution_state;
         }
 
         // However, if there are pending interrupts, but *all* interrupts are disabled, the CPU still
@@ -125,7 +121,7 @@ impl Cpu {
             0x06 | 0x16 | 0x26 | 0x36 | 0x0E | 0x1E | 0x2E | 0x3E => self.ld_r8_u8(opcode_byte, mmu),
             0x04 | 0x14 | 0x24 | 0x34 | 0x0C | 0x1C | 0x2C | 0x3C => self.inc_r8(opcode_byte, mmu),
             0x05 | 0x15 | 0x25 | 0x35 | 0x0D | 0x1D | 0x2D | 0x3D => self.dec_r8(opcode_byte, mmu),
-            0x76 => self.halt(opcode_byte),
+            0x76 => self.halt(opcode_byte, mmu),
             0x40..=0x7F => self.ld_r8_r8(opcode_byte, mmu),
             0xE0 => self.ld_ff00_u8_a(opcode_byte, mmu),
             0xE2 => self.ld_ff00_c_a(opcode_byte, mmu),
@@ -165,9 +161,9 @@ impl Cpu {
 
     // Opcode Implementations
     fn stop<BusType: SystemBus>(&mut self, mmu: &mut BusType) {
-        if self.system_state.borrow().key1 & 0b1 == 0b1 {
+        if mmu.system_state().key1 & 0b1 == 0b1 {
             // If a speed switch has been requested
-            self.system_state.borrow_mut().execution_state = ExecutionState::PreparingSpeedSwitch;
+            mmu.system_state().execution_state = ExecutionState::PreparingSpeedSwitch;
         }
         self.fetch(mmu);
     }
@@ -427,10 +423,9 @@ impl Cpu {
         ByteRegister::for_r8(b543, self).set(result, mmu);
     }
 
-    fn halt(&mut self, _: u8) {
-        self.previous_execution_state = Some(self.system_state.borrow().execution_state);
-        let mut system_state = self.system_state.borrow_mut();
-        system_state.execution_state = ExecutionState::Halted;
+    fn halt<BusType: SystemBus>(&mut self, _: u8, mmu: &mut BusType) {
+        self.previous_execution_state = Some(mmu.system_state().execution_state);
+        mmu.system_state().execution_state = ExecutionState::Halted;
     }
 
     fn ld_r8_r8<BusType: SystemBus>(&mut self, opcode: u8, mmu: &mut BusType) {
@@ -1152,6 +1147,7 @@ pub mod tests {
     use serde::{Deserialize, Deserializer};
 
     use crate::memory::Memory;
+    use crate::SystemState;
 
     use super::*;
 
@@ -1259,11 +1255,14 @@ pub mod tests {
         memory: [u8; 0x10000],
         ticked_cycle_count: u64,
         expected_cycles: &'a [Option<CycleState>],
+        system_state: SystemState,
     }
 
     impl<'a> FlatMmu<'a> {
         pub fn new(ram_states: &[RamState], expected_cycles: &'a [Option<CycleState>]) -> Self {
             let mut memory = [0x00; 0x10000];
+            let system_state = SystemState::default();
+
             for ram_state in ram_states {
                 memory[ram_state.0 as usize] = ram_state.1;
             }
@@ -1272,6 +1271,7 @@ pub mod tests {
                 memory,
                 ticked_cycle_count: 0,
                 expected_cycles,
+                system_state
             }
         }
     }
@@ -1316,6 +1316,10 @@ pub mod tests {
         fn tick(&mut self) {
             self.ticked_cycle_count += 1;
         }
+
+        fn system_state(&mut self) -> &mut SystemState {
+            &mut self.system_state
+        }
     }
 
     fn run_test_case(test_case: &OpcodeTestCase) {
@@ -1324,8 +1328,7 @@ pub mod tests {
             &test_case.cycles,
         );
         let interrupts = Rc::new(RefCell::new(InterruptHandler::default()));
-        let system_state = Rc::new(RefCell::new(SystemState::default()));
-        let mut cpu = Cpu::new(interrupts, system_state);
+        let mut cpu = Cpu::new(interrupts);
         cpu.regs = Registers::from(test_case.initial.cpu);
         cpu.execute_opcode(&mut mmu);
 

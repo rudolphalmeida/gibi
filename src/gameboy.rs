@@ -8,16 +8,15 @@ use crate::framebuffer::access;
 use crate::interrupts::InterruptHandler;
 use crate::joypad::{JoypadKeys};
 use crate::{cpu::Cpu, mmu::Mmu, GameFrame};
-use crate::{ExecutionState, HardwareSupport, HdmaState, SystemState};
+use crate::{HardwareSupport};
 use crate::cartridge::Cartridge;
+use crate::memory::SystemBus;
 
 const CYCLES_PER_FRAME: u64 = 17556;
 
 pub struct Gameboy {
     mmu: Mmu,
     cpu: Cpu,
-
-    system_state: Rc<RefCell<SystemState>>,
 }
 
 impl Gameboy {
@@ -37,29 +36,13 @@ impl Gameboy {
             HardwareSupport::DmgCompat => log::info!("Game is running in DMG compatibility mode"),
         }
 
-        let system_state = Rc::new(RefCell::new(SystemState {
-            execution_state: ExecutionState::ExecutingProgram,
-            hardware_support,
-            carry_over_cycles: 0,
-            total_cycles: 0,
-            key1: 0x00,
-            bootrom_mapped: true,
-            hdma_state: HdmaState {
-                source_addr: 0xFFFF,
-                dest_addr: 0xFFFF,
-                hdma_stat: 0x00,
-            },
-        }));
-
         let interrupts = Rc::new(RefCell::new(InterruptHandler::default()));
         let mmu = Mmu::new(
             cart,
-            Rc::clone(&system_state),
             Rc::clone(&interrupts),
         );
-        let cpu = Cpu::new(interrupts, Rc::clone(&system_state));
+        let cpu = Cpu::new(interrupts);
         Gameboy {
-            system_state,
             mmu,
             cpu,
         }
@@ -71,19 +54,19 @@ impl Gameboy {
     }
 
     pub fn run_one_frame(&mut self) {
-        let machine_cycles = self.system_state.borrow().total_cycles;
-        let carry_over_cycles = self.system_state.borrow().carry_over_cycles;
-        let speed_multiplier = self.system_state.borrow().speed_multiplier();
+        let machine_cycles = self.mmu.system_state().total_cycles;
+        let carry_over_cycles = self.mmu.system_state().carry_over_cycles;
+        let speed_multiplier = self.mmu.system_state().speed_divider();
 
         let target_machine_cycles =
             machine_cycles + CYCLES_PER_FRAME * speed_multiplier - carry_over_cycles;
 
-        while self.system_state.borrow().total_cycles < target_machine_cycles {
+        while self.mmu.system_state().total_cycles < target_machine_cycles {
             self.cpu.execute(&mut self.mmu);
         }
 
-        let carry_over_cycles = self.system_state.borrow().total_cycles - target_machine_cycles;
-        self.system_state.borrow_mut().carry_over_cycles = carry_over_cycles;
+        let carry_over_cycles = self.mmu.system_state().total_cycles - target_machine_cycles;
+        self.mmu.system_state().carry_over_cycles = carry_over_cycles;
     }
 
     pub fn write_frame(&self, frame_writer: &mut access::AccessW<GameFrame>) {

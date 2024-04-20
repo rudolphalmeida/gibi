@@ -122,14 +122,11 @@ pub(crate) struct Ppu {
     frame: GameFrame,
     // Index in palette of each color that was used for background
     bg_color_indices: Vec<RenderedBackgroundPixel>,
-
-    system_state: Rc<RefCell<SystemState>>,
 }
 
 impl Ppu {
     pub fn new(
         interrupts: Rc<RefCell<InterruptHandler>>,
-        system_state: Rc<RefCell<SystemState>>,
     ) -> Self {
         let mut stat: LcdStat = Default::default();
         stat.set_mode(LcdStatus::OamSearch);
@@ -158,14 +155,13 @@ impl Ppu {
             interrupts,
             frame: Default::default(),
             bg_color_indices: vec![Default::default(); LCD_WIDTH * LCD_HEIGHT],
-            system_state,
         }
     }
 
-    pub fn tick(&mut self, speed_divider: u64) {
+    pub fn tick(&mut self, system_state: &mut SystemState) {
         // Tick 4 times if single speed mode and 2 times if double speed mode
         // The LCD controller speed does not change with the speed mode
-        let cycles_to_tick = DOTS_PER_TICK / speed_divider;
+        let cycles_to_tick = DOTS_PER_TICK / system_state.speed_divider();
         for _ in 0..cycles_to_tick {
             self.dots_in_line += 1;
 
@@ -176,7 +172,7 @@ impl Ppu {
                     self.assert_lcd_stat(old_stat);
                 }
                 LcdStatus::Rendering if self.dots_in_line == RENDERING_DOTS => {
-                    self.render_line();
+                    self.render_line(system_state);
                     let old_stat = self.stat;
                     self.stat.set_mode(LcdStatus::Hblank);
                     self.assert_lcd_stat(old_stat);
@@ -256,14 +252,14 @@ impl Ppu {
         }
     }
 
-    fn render_line(&mut self) {
+    fn render_line(&mut self, system_state: &mut SystemState) {
         if !self.lcdc.lcd_enabled() {
             return;
         }
 
-        if self.system_state.borrow().dmg_compat_mode() {
+        if system_state.dmg_compat_mode() {
             if self.lcdc.bg_and_window_enabled() {
-                self.render_background_line();
+                self.render_background_line(system_state);
             } else {
                 // If BG/Window is disabled both BG and Window become white
                 // Reference: https://gbdev.io/pandocs/LCDC.html#non-cgb-mode-dmg-sgb-and-cgb-in-compatibility-mode-bg-and-window-display
@@ -280,7 +276,7 @@ impl Ppu {
                 self.render_window_line();
             }
         } else {
-            self.render_background_line();
+            self.render_background_line(system_state);
 
             if self.lcdc.window_enabled() {
                 self.render_window_line();
@@ -289,11 +285,11 @@ impl Ppu {
 
         // Sprites are drawn the same regardless of DMG-Compat or CGB mode
         if self.lcdc.sprites_enabled() {
-            self.draw_sprites_on_ly();
+            self.draw_sprites_on_ly(system_state);
         }
     }
 
-    fn render_background_line(&mut self) {
+    fn render_background_line(&mut self, system_state: &mut SystemState) {
         let tileset_address = self.lcdc.bg_and_window_tiledata_area() as usize;
         let tilemap_address = self.lcdc.bg_tilemap_area() as usize;
 
@@ -315,7 +311,7 @@ impl Ppu {
             let tile_attr = self.vram[vram_index(tile_index_address as u16, 1)];
 
             // If the bootrom is mapped, run in CGB mode regardless of cart
-            let (pixel_color, color_id) = if self.system_state.borrow().dmg_compat_mode() {
+            let (pixel_color, color_id) = if system_state.dmg_compat_mode() {
                 self.render_dmg_compat_bg(bg_map_x, bg_map_y, tile_id, tileset_address)
             } else {
                 self.render_cgb_bg(bg_map_x, bg_map_y, tile_id, tile_attr, tileset_address)
@@ -476,8 +472,8 @@ impl Ppu {
         }
     }
 
-    fn draw_sprites_on_ly(&mut self) {
-        let sprites = self.get_sprites_on_ly();
+    fn draw_sprites_on_ly(&mut self, system_state: &mut SystemState) {
+        let sprites = self.get_sprites_on_ly(system_state);
         let sprite_height = self.lcdc.sprite_height() as u8;
 
         let screen_y = self.ly as usize;
@@ -517,7 +513,7 @@ impl Ppu {
                 sprite_tile_address + (sprite_line_offset as u16 * 2);
 
             let obj_palette_number =
-                sprite.palette(self.system_state.borrow().dmg_compat_mode()) as usize;
+                sprite.palette(system_state.dmg_compat_mode()) as usize;
             let palette_spec =
                 &self.color_obj_palettes[(obj_palette_number * 8)..((obj_palette_number + 1) * 8)];
             let palette = Palette::new_color(palette_spec);
@@ -572,7 +568,7 @@ impl Ppu {
                     bg_priority,
                 } = self.bg_color_indices[screen_y * LCD_WIDTH + screen_x];
 
-                if self.system_state.borrow().dmg_compat_mode() {
+                if system_state.dmg_compat_mode() {
                     if sprite.bg_window_over_sprite() {
                         if bg_color_index == 0 {
                             *pixel = palette.actual_color_from_index(color_id);
@@ -591,7 +587,7 @@ impl Ppu {
         }
     }
 
-    fn get_sprites_on_ly(&self) -> Vec<Sprite> {
+    fn get_sprites_on_ly(&self, system_state: &mut SystemState) -> Vec<Sprite> {
         let mut sprites = Vec::with_capacity(10);
         let sprite_indices = self.sprites_on_ly();
 
@@ -604,7 +600,7 @@ impl Ppu {
 
         // Sorting by the X coordinate will take care of the first condition for DMG mode where the
         // sprite with the lower X coordinate has higher priority and is drawn over
-        if self.system_state.borrow().dmg_compat_mode() {
+        if system_state.dmg_compat_mode() {
             sprites.sort_by(|sprite1, sprite2| sprite1.x.cmp(&sprite2.x));
         }
 

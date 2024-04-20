@@ -1,4 +1,5 @@
 use crate::memory::Memory;
+use crate::SystemState;
 
 pub const SOUND_START: u16 = 0xFF10;
 pub const SOUND_END: u16 = 0xFF26;
@@ -12,7 +13,7 @@ impl Apu {
         Apu {}
     }
 
-    pub fn tick(&mut self, _speed_multiplier: u64) {
+    pub fn tick(&mut self, _system_state: &mut SystemState) {
         // The APU is not affected by CGB double speed mode
     }
 }
