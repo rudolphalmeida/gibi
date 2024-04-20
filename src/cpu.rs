@@ -1234,7 +1234,6 @@ pub mod tests {
     );
 
     #[derive(Deserialize, Debug)]
-
     struct OpcodeTestCase {
         name: String,
         initial: MemoryState,
