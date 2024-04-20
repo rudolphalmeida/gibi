@@ -3,13 +3,13 @@ use std::path::PathBuf;
 use std::{cell::RefCell, rc::Rc};
 use std::{fs, io};
 
-use crate::cartridge::init_mbc_from_rom;
 use crate::cpu::Registers;
 use crate::framebuffer::access;
 use crate::interrupts::InterruptHandler;
 use crate::joypad::{JoypadKeys};
 use crate::{cpu::Cpu, mmu::Mmu, GameFrame};
 use crate::{ExecutionState, HardwareSupport, HdmaState, SystemState};
+use crate::cartridge::Cartridge;
 
 const CYCLES_PER_FRAME: u64 = 17556;
 
@@ -22,7 +22,7 @@ pub struct Gameboy {
 
 impl Gameboy {
     pub fn new(rom: Vec<u8>, ram: Option<Vec<u8>>) -> Self {
-        let cart = init_mbc_from_rom(rom, ram);
+        let cart = Cartridge::new(rom, ram).unwrap();
         let hardware_support = cart.hardware_supported();
 
         log::info!("Loaded a cartridge with MBC: {}", cart.name());

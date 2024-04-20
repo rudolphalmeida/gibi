@@ -72,7 +72,7 @@ struct OamDma {
 /// Game Boy, redirecting reads and writes made by the CPU and PPU to the
 /// correct component to which the address is mapped.
 pub(crate) struct Mmu {
-    pub(crate) cart: Box<dyn Cartridge>,
+    pub(crate) cart: Cartridge,
     pub(crate) ppu: Ppu,
     apu: Apu,
     joypad: Joypad,
@@ -95,7 +95,7 @@ pub(crate) struct Mmu {
 
 impl Mmu {
     pub fn new(
-        cart: Box<dyn Cartridge>,
+        cart: Cartridge,
         system_state: Rc<RefCell<SystemState>>,
         interrupts: Rc<RefCell<InterruptHandler>>,
     ) -> Self {

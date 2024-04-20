@@ -1,3 +1,4 @@
+use std::ops::Deref;
 use crate::{memory::Memory, min_number_of_bits, HardwareSupport};
 
 const CGB_FLAG_ADDRESS: u16 = 0x143;
@@ -17,41 +18,7 @@ pub const CART_ROM_END: u16 = 0x7FFF;
 pub const CART_RAM_START: u16 = 0xA000;
 pub const CART_RAM_END: u16 = 0xBFFF;
 
-pub(crate) trait Savable {
-    fn savable(&self) -> bool;
-    fn save_ram(&self) -> Option<&Vec<u8>>;
-}
-
-pub(crate) trait Cartridge: Memory + Mbc + Savable {
-    fn hardware_supported(&self) -> HardwareSupport {
-        match self.rom()[CGB_FLAG_ADDRESS as usize] {
-            0x80 => HardwareSupport::DmgCgb,
-            0xC0 => HardwareSupport::CgbOnly,
-            _ => HardwareSupport::DmgCompat,
-        }
-    }
-}
-
-pub(crate) fn init_mbc_from_rom(rom: Vec<u8>, ram: Option<Vec<u8>>) -> Box<dyn Cartridge> {
-    match rom[CARTRIDGE_TYPE_ADDRESS as usize] {
-        0x00 => Box::new(NoMbc::new(rom)),
-        x @ (0x01..=0x03) => Box::new(Mbc1::new(rom, ram, x == 0x03)),
-        x @ (0x19..=0x1E) => Box::new(Mbc5::new(
-            rom,
-            ram,
-            x == 0x1B || x == 0x1E,
-            x == 0x1C || x == 0x1D || x == 0x1E,
-        )),
-        // TODO: More MBCs
-        // TODO: Remove `panic`s
-        _ => panic!(
-            "Unsupported MBC type: {:#04X}",
-            rom[CARTRIDGE_TYPE_ADDRESS as usize]
-        ),
-    }
-}
-
-pub trait Mbc {
+pub trait Mbc: Memory {
     /// Name of the MBC as determined by the cartridge type
     fn name(&self) -> String;
 
@@ -80,6 +47,57 @@ pub trait Mbc {
     fn ram_banks(&self) -> u32 {
         ram_size(self.rom()[RAM_SIZE_ADDRESS as usize]).1
     }
+
+    fn savable(&self) -> bool;
+    fn save_ram(&self) -> Option<&Vec<u8>>;
+}
+
+pub struct Cartridge {
+    mbc: Box<dyn Mbc>,
+    hardware_supported: HardwareSupport,
+}
+
+impl Cartridge {
+    pub fn new(rom: Vec<u8>, ram: Option<Vec<u8>>) -> Result<Self, String> {
+        let hardware_supported = hardware_supported(&rom);
+        let mbc: Box<dyn Mbc> = match rom[CARTRIDGE_TYPE_ADDRESS as usize] {
+            0x00 => Box::new(NoMbc::new(rom)),
+            code @ (0x01..=0x03) => Box::new(Mbc1::new(rom, ram, code == 0x03)),
+            code @ (0x19..=0x1E) => Box::new(Mbc5::new(
+                rom,
+                ram,
+                code == 0x1B || code == 0x1E,
+                code == 0x1C || code == 0x1D || code == 0x1E,
+            )),
+            code => return Err(format!("Unsupported MBC with code: '{code}'")),
+        };
+
+        Ok(Self {
+            mbc, hardware_supported
+        })
+    }
+
+    pub(crate) fn hardware_supported(&self) -> HardwareSupport {
+        self.hardware_supported
+    }
+}
+
+impl Memory for Cartridge {
+    fn read(&mut self, address: u16) -> u8 {
+        self.mbc.read(address)
+    }
+
+    fn write(&mut self, address: u16, data: u8) {
+        self.mbc.write(address, data)
+    }
+}
+
+impl Deref for Cartridge {
+    type Target = Box<dyn Mbc>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.mbc
+    }
 }
 
 // Memory Banking Controllers (MBCS)
@@ -101,6 +119,14 @@ impl Mbc for NoMbc {
 
     fn rom(&self) -> &Vec<u8> {
         &self.rom
+    }
+
+    fn savable(&self) -> bool {
+        false
+    }
+
+    fn save_ram(&self) -> Option<&Vec<u8>> {
+        None
     }
 }
 
@@ -124,18 +150,6 @@ impl Memory for NoMbc {
         );
     }
 }
-
-impl Savable for NoMbc {
-    fn savable(&self) -> bool {
-        false
-    }
-
-    fn save_ram(&self) -> Option<&Vec<u8>> {
-        None
-    }
-}
-
-impl Cartridge for NoMbc {}
 // End-ROM Only MBC---------------------------------------------------------------------------------
 
 // MBC1 --------------------------------------------------------------------------------------------
@@ -223,6 +237,14 @@ impl Mbc for Mbc1 {
     fn ram(&self) -> Option<&Vec<u8>> {
         self.ram.as_ref()
     }
+
+    fn savable(&self) -> bool {
+        self.savable
+    }
+
+    fn save_ram(&self) -> Option<&Vec<u8>> {
+        self.ram.as_ref()
+    }
 }
 
 impl Memory for Mbc1 {
@@ -307,19 +329,6 @@ impl Memory for Mbc1 {
         }
     }
 }
-
-impl Savable for Mbc1 {
-    fn savable(&self) -> bool {
-        self.savable
-    }
-
-    fn save_ram(&self) -> Option<&Vec<u8>> {
-        self.ram.as_ref()
-    }
-}
-
-impl Cartridge for Mbc1 {}
-
 // END-MBC1 ----------------------------------------------------------------------------------------
 
 // MBC5 --------------------------------------------------------------------------------------------
@@ -389,6 +398,14 @@ impl Mbc for Mbc5 {
     fn ram(&self) -> Option<&Vec<u8>> {
         self.ram.as_ref()
     }
+
+    fn savable(&self) -> bool {
+        self.savable
+    }
+
+    fn save_ram(&self) -> Option<&Vec<u8>> {
+        self.ram.as_ref()
+    }
 }
 
 impl Memory for Mbc5 {
@@ -451,19 +468,6 @@ impl Memory for Mbc5 {
         }
     }
 }
-
-impl Savable for Mbc5 {
-    fn savable(&self) -> bool {
-        self.savable
-    }
-
-    fn save_ram(&self) -> Option<&Vec<u8>> {
-        self.ram.as_ref()
-    }
-}
-
-impl Cartridge for Mbc5 {}
-
 // END-MBC5 ----------------------------------------------------------------------------------------
 
 // Helper methods
@@ -493,5 +497,14 @@ fn ram_size(value: u8) -> (u32, u32) {
         0x04 => (RAM_BANK_SIZE * 16, 16), // 128 KB
         0x05 => (RAM_BANK_SIZE * 8, 8),   // 64KB
         _ => panic!("Unknown RAM size byte {:#4X}", value),
+    }
+}
+
+/// Get the hardware supported by the ROM based of the `CGB_FLAG_ADDRESS`
+fn hardware_supported(rom: &[u8]) -> HardwareSupport {
+    match rom[CGB_FLAG_ADDRESS as usize] {
+        0x80 => HardwareSupport::DmgCgb,
+        0xC0 => HardwareSupport::CgbOnly,
+        _ => HardwareSupport::DmgCompat,
     }
 }
