@@ -1,27 +1,37 @@
+use crate::debug::{CpuDebug, ExecutedOpcode};
+use circular_buffer::CircularBuffer;
 use paste::paste;
 
-use crate::interrupts::{
-    InterruptType, INTERRUPT_ENABLE_ADDRESS, INTERRUPT_FLAG_ADDRESS,
-};
+use crate::interrupts::{InterruptType, INTERRUPT_ENABLE_ADDRESS, INTERRUPT_FLAG_ADDRESS};
 use crate::memory::SystemBus;
 use crate::ExecutionState;
 
 pub(crate) struct Cpu {
-    pub(crate) regs: Registers,
+    regs: Registers,
     ime: bool,
     previous_execution_state: Option<ExecutionState>,
+    opcodes: CircularBuffer<10, ExecutedOpcode>,
 }
 
 impl Cpu {
     pub fn new() -> Self {
         let regs = Default::default();
         let ime = true;
+        let opcodes = CircularBuffer::new();
 
         log::debug!("Initialized CPU for CGB");
         Cpu {
             regs,
             ime,
             previous_execution_state: None,
+            opcodes,
+        }
+    }
+
+    pub fn debug(&self) -> CpuDebug {
+        CpuDebug {
+            registers: self.regs,
+            opcodes: self.opcodes.to_vec(),
         }
     }
 
@@ -96,7 +106,17 @@ impl Cpu {
     }
 
     fn execute_opcode<BusType: SystemBus>(&mut self, mmu: &mut BusType) {
+        let mut opcode = ExecutedOpcode {
+            pc: self.regs.pc,
+            ..ExecutedOpcode::default()
+        };
+
         let opcode_byte = self.fetch(mmu);
+        opcode.opcode = opcode_byte;
+        opcode.arg1 = mmu.unticked_read(self.regs.pc);
+        opcode.arg2 = mmu.unticked_read(self.regs.pc + 1);
+
+        self.opcodes.push_back(opcode);
 
         match opcode_byte {
             0x00 => {} // NOP
@@ -1136,9 +1156,9 @@ pub mod tests {
     use std::path::Path;
     use std::str::FromStr;
 
+    use crate::interrupts::InterruptHandler;
     use num_traits;
     use serde::{Deserialize, Deserializer};
-    use crate::interrupts::InterruptHandler;
 
     use crate::memory::Memory;
     use crate::SystemState;

@@ -5,6 +5,7 @@ use eframe::epaint::ImageDelta;
 use eframe::glow::Context;
 use eframe::{self, egui, CreationContext};
 use gibi::cpu::Registers;
+use gibi::debug::{CpuDebug, ExecutedOpcode};
 use gibi::framebuffer::access;
 use gibi::gameboy::Gameboy;
 use gibi::joypad::JoypadKeys;
@@ -102,7 +103,7 @@ pub struct GameboyApp {
     open_panel: Panel,
 
     #[serde(skip)]
-    cpu_registers: Option<Registers>,
+    cpu_debug: Option<CpuDebug>,
     #[serde(skip)]
     comm_ctx: Option<EmulatorCommCtx>,
 }
@@ -171,13 +172,7 @@ impl GameboyApp {
                     ui.separator();
 
                     match self.open_panel {
-                        Panel::Cpu => {
-                            if let Some(cpu_registers) = self.cpu_registers {
-                                self.show_cpu_registers(ui, cpu_registers);
-                            } else {
-                                self.show_cpu_registers(ui, Registers::default());
-                            }
-                        }
+                        Panel::Cpu => self.show_cpu_debug(ui),
                         Panel::Ppu => {}
                         Panel::Memory => {}
                         Panel::Nametables => {}
@@ -219,7 +214,7 @@ impl GameboyApp {
                         self.recent_roms.push(path);
                     }
                 }
-                ui.menu_button("Open Recent" , |ui| {
+                ui.menu_button("Open Recent", |ui| {
                     for path in &self.recent_roms {
                         if (ui.button(path.file_name().unwrap().to_str().unwrap())).clicked() {
                             // TODO: Stop running emulation if clicking
@@ -279,7 +274,12 @@ impl GameboyApp {
         });
     }
 
-    fn show_cpu_registers(&mut self, ui: &mut egui::Ui, cpu_registers: Registers) {
+    fn show_cpu_debug(&mut self, ui: &mut egui::Ui) {
+        let (cpu_registers, opcodes) = if let Some(ref cpu_debug) = self.cpu_debug {
+            (cpu_debug.registers, cpu_debug.opcodes.as_slice())
+        } else {
+            (Registers::default(), ([] as [ExecutedOpcode; 0]).as_slice())
+        };
         egui::Grid::new("cpu_registers_grid")
             .num_columns(4)
             .spacing([0.0, 20.0])
@@ -358,6 +358,22 @@ impl GameboyApp {
             };
             columns[4].label(carry_label);
         });
+
+        ui.separator();
+        egui::Grid::new("cpu_opcodes_grid")
+            .num_columns(4)
+            .spacing([0.0, 20.0])
+            .min_col_width(100.0)
+            .striped(true)
+            .show(ui, |ui| {
+                for executed_opcode in opcodes {
+                    ui.label(format!("{:#06X}", executed_opcode.pc));
+                    ui.label(format!("{:#04X}", executed_opcode.opcode));
+                    ui.label(format!("{:#04X}", executed_opcode.arg1));
+                    ui.label(format!("{:#04X}", executed_opcode.arg2));
+                    ui.end_row();
+                }
+            });
     }
 }
 
@@ -366,7 +382,6 @@ impl eframe::App for GameboyApp {
         self.handle_input(ctx);
 
         self.send_message(EmulatorCommand::RunFrame);
-        self.send_message(EmulatorCommand::SendDebugData);
 
         if let Some(comm_ctx) = self.comm_ctx.as_mut() {
             while let Ok(event) = comm_ctx.event_rc.try_recv() {
@@ -382,7 +397,7 @@ impl eframe::App for GameboyApp {
                         ctx.tex_manager().write().set(comm_ctx.tex.id(), delta);
                     }
                     EmulatorEvent::CpuRegisters(cpu_registers) => {
-                        self.cpu_registers = Some(cpu_registers)
+                        self.cpu_debug = Some(cpu_registers)
                     }
                 }
             }
@@ -416,8 +431,6 @@ pub unsafe fn to_byte_slice<T>(data: &[T]) -> &[u8] {
 
 #[derive(Debug)]
 enum EmulatorCommand {
-    SendDebugData,
-
     // Emulation control
     Start,
     RunFrame,
@@ -468,6 +481,11 @@ impl EmulationThread {
                             .event_tx
                             .send(EmulatorEvent::CompletedFrame)
                             .unwrap();
+                        let data = self.gameboy.load_cpu_debug();
+                        self.comm_ctx
+                            .event_tx
+                            .send(EmulatorEvent::CpuRegisters(data))
+                            .unwrap();
                     }
                     EmulatorCommand::RunFrame => {}
                     EmulatorCommand::Pause => self.paused = true,
@@ -483,13 +501,6 @@ impl EmulationThread {
                         // TODO: Save if a game is already running
                         log::info!("Received request to quit. Terminate emulation thread");
                         break;
-                    }
-                    EmulatorCommand::SendDebugData => {
-                        let data = self.gameboy.send_debug_data();
-                        self.comm_ctx
-                            .event_tx
-                            .send(EmulatorEvent::CpuRegisters(data))
-                            .unwrap();
                     }
                 },
                 Err(e) => log::error!("{}", e),

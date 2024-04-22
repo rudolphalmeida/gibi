@@ -1,8 +1,9 @@
 #![allow(dead_code)] // Only for development
 
-use crate::textures::Texture;
-use cpu::Registers;
 use ppu::{LCD_HEIGHT, LCD_WIDTH};
+
+use crate::debug::CpuDebug;
+use crate::textures::Texture;
 
 mod apu;
 mod cartridge;
@@ -26,7 +27,8 @@ pub enum EmulatorEvent {
     /// Raised on Vblank
     CompletedFrame,
 
-    CpuRegisters(Registers),
+    // UI debug data
+    CpuRegisters(CpuDebug),
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Default)]

@@ -3,12 +3,12 @@ use std::path::PathBuf;
 use std::{fs, io};
 
 use crate::cartridge::Cartridge;
-use crate::cpu::Registers;
 use crate::framebuffer::access;
 use crate::joypad::JoypadKeys;
 use crate::memory::SystemBus;
 use crate::HardwareSupport;
 use crate::{cpu::Cpu, mmu::Mmu, GameFrame};
+use crate::debug::CpuDebug;
 
 const CYCLES_PER_FRAME: u64 = 17556;
 
@@ -39,9 +39,8 @@ impl Gameboy {
         Gameboy { mmu, cpu }
     }
 
-    // TODO: Extract out a debug info type
-    pub fn send_debug_data(&self) -> Registers {
-        self.cpu.regs
+    pub fn load_cpu_debug(&self) -> CpuDebug {
+        self.cpu.debug()
     }
 
     pub fn run_one_frame(&mut self) {
