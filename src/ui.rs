@@ -623,8 +623,8 @@ impl GameboyApp {
         ui.separator();
         egui::Grid::new("cpu_opcodes_grid")
             .num_columns(2)
-            .spacing([0.0, 20.0])
-            .min_col_width(100.0)
+            .spacing([40.0, 20.0])
+            .min_col_width(200.0)
             .striped(true)
             .show(ui, |ui| {
                 for executed_opcode in opcodes {
