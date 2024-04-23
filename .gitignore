@@ -10,6 +10,7 @@ roms
 
 .idea
 .vscode
+.venv
 
 sm83-test-data
 gb_test_roms
