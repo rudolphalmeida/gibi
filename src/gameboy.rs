@@ -3,12 +3,12 @@ use std::path::PathBuf;
 use std::{fs, io};
 
 use crate::cartridge::Cartridge;
+use crate::debug::CpuDebug;
 use crate::framebuffer::access;
 use crate::joypad::JoypadKeys;
 use crate::memory::SystemBus;
 use crate::HardwareSupport;
 use crate::{cpu::Cpu, mmu::Mmu, GameFrame};
-use crate::debug::CpuDebug;
 
 const CYCLES_PER_FRAME: u64 = 17556;
 
@@ -20,15 +20,15 @@ pub struct Gameboy {
 impl Gameboy {
     pub fn new(rom: Vec<u8>, ram: Option<Vec<u8>>) -> Self {
         let cart = Cartridge::new(rom, ram).unwrap();
-        let hardware_support = cart.hardware_supported();
 
-        log::info!("Loaded a cartridge with MBC: {}", cart.name());
-        log::info!("Number of ROM banks: {}", cart.rom_banks());
-        log::info!("ROM size (Bytes): {}", cart.rom_size());
-        log::info!("Number of RAM banks: {}", cart.ram_banks());
-        log::info!("RAM size (Bytes): {}", cart.ram_size());
+        log::info!("Loaded a cartridge with title: {}", cart.header.title);
+        log::info!("MBC type: {}", cart.header.cart_type);
+        log::info!("Number of ROM banks: {}", cart.header.rom_banks());
+        log::info!("ROM size (Bytes): {}", cart.header.rom_size());
+        log::info!("Number of RAM banks: {}", cart.header.ram_banks());
+        log::info!("RAM size (Bytes): {}", cart.header.ram_size());
 
-        match hardware_support {
+        match cart.header.hardware_supported {
             HardwareSupport::CgbOnly => log::info!("Game supports CGB hardware only"),
             HardwareSupport::DmgCgb => log::info!("Game supports both CGB and DMG"),
             HardwareSupport::DmgCompat => log::info!("Game is running in DMG compatibility mode"),

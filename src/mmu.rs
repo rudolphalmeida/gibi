@@ -91,9 +91,7 @@ pub(crate) struct Mmu {
 }
 
 impl Mmu {
-    pub fn new(
-        cart: Cartridge,
-    ) -> Self {
+    pub fn new(cart: Cartridge) -> Self {
         let wram = [0x00; WRAM_BANK_SIZE * 8]; // 32KB
         let wram_bank = 0x1;
 
@@ -109,7 +107,7 @@ impl Mmu {
 
         let system_state = SystemState {
             execution_state: ExecutionState::ExecutingProgram,
-            hardware_support: cart.hardware_supported(),
+            hardware_support: cart.header.hardware_supported,
             carry_over_cycles: 0,
             total_cycles: 0,
             key1: 0x00,
@@ -202,8 +200,7 @@ impl Mmu {
             } else {
                 let len = ((data as usize & 0x7F) + 1) * 0x10;
                 let mut src_addr = self.system_state.hdma_state.source_addr & 0xFFF0;
-                let mut dest_addr =
-                    (self.system_state.hdma_state.dest_addr & 0x1FF0) | 0x8000;
+                let mut dest_addr = (self.system_state.hdma_state.dest_addr & 0x1FF0) | 0x8000;
 
                 for _ in 0..len {
                     let value = self.unticked_read(src_addr);
@@ -353,22 +350,10 @@ impl SystemBus for Mmu {
                 self.system_state.key1 = key1;
             }
             BOOTROM_DISABLE => self.disable_bootrom(data),
-            HDMA1 => self
-                .system_state
-                .hdma_state
-                .write_src_high(data),
-            HDMA2 => self
-                .system_state
-                .hdma_state
-                .write_src_low(data),
-            HDMA3 => self
-                .system_state
-                .hdma_state
-                .write_dest_high(data),
-            HDMA4 => self
-                .system_state
-                .hdma_state
-                .write_dest_low(data),
+            HDMA1 => self.system_state.hdma_state.write_src_high(data),
+            HDMA2 => self.system_state.hdma_state.write_src_low(data),
+            HDMA3 => self.system_state.hdma_state.write_dest_high(data),
+            HDMA4 => self.system_state.hdma_state.write_dest_low(data),
             HDMA5 if self.system_state.hardware_support != HardwareSupport::DmgCompat => {
                 self.on_hdma5_write(data)
             }
@@ -385,7 +370,8 @@ impl SystemBus for Mmu {
         self.system_state.total_cycles += 1;
         self.tick_oam_dma();
 
-        self.timer.tick(&mut self.system_state, &mut self.interrupts);
+        self.timer
+            .tick(&mut self.system_state, &mut self.interrupts);
         self.joypad.tick(&mut self.interrupts);
         self.ppu.tick(&mut self.system_state, &mut self.interrupts);
         self.apu.tick(&mut self.system_state, &mut self.interrupts);
