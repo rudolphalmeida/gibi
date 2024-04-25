@@ -4,6 +4,7 @@ use eframe::egui::{menu, Color32, ColorImage, ImageSource, Key, RichText, Textur
 use eframe::epaint::ImageDelta;
 use eframe::glow::Context;
 use eframe::{self, egui, CreationContext};
+use gibi::cartridge::CartridgeHeader;
 use gibi::cpu::Registers;
 use gibi::debug::{CpuDebug, ExecutedOpcode};
 use gibi::framebuffer::access;
@@ -366,6 +367,8 @@ pub struct GameboyApp {
     #[serde(skip)]
     cpu_debug: Option<CpuDebug>,
     #[serde(skip)]
+    cart_header: Option<CartridgeHeader>,
+    #[serde(skip)]
     comm_ctx: Option<EmulatorCommCtx>,
 }
 
@@ -437,7 +440,7 @@ impl GameboyApp {
                         Panel::Ppu => {}
                         Panel::Memory => {}
                         Panel::Nametables => {}
-                        Panel::Cartridge => {}
+                        Panel::Cartridge => self.show_cart_info(ui),
                     }
 
                     ui.separator();
@@ -640,6 +643,56 @@ impl GameboyApp {
                 }
             });
     }
+
+    fn show_cart_info(&self, ui: &mut egui::Ui) {
+        if self.cart_header.is_none() {
+            return;
+        }
+
+        let cart_header = self.cart_header.as_ref().unwrap();
+        egui::Grid::new("cart_info_grid")
+            .num_columns(2)
+            .spacing([40.0, 20.0])
+            .min_col_width(200.0)
+            .striped(true)
+            .show(ui, |ui| {
+                ui.label("Title");
+                ui.label(&cart_header.title);
+                ui.end_row();
+
+                ui.label("Manufacturer Code");
+                ui.label(&cart_header.manufacturer_code);
+                ui.end_row();
+
+                ui.label("Supported Hardware");
+                ui.label(match cart_header.hardware_supported {
+                    gibi::HardwareSupport::CgbOnly => "CGB Only",
+                    gibi::HardwareSupport::DmgCgb => "DMG & CGB",
+                    gibi::HardwareSupport::DmgCompat => "DMG Compat",
+                });
+                ui.end_row();
+
+                ui.label("MBC Configuration");
+                ui.label(&cart_header.cart_type);
+                ui.end_row();
+
+                ui.label("ROM Size");
+                ui.label(format!("{}", cart_header.rom_size()));
+                ui.end_row();
+
+                ui.label("ROM Banks");
+                ui.label(format!("{}", cart_header.rom_banks()));
+                ui.end_row();
+
+                ui.label("RAM Size");
+                ui.label(format!("{}", cart_header.ram_size()));
+                ui.end_row();
+
+                ui.label("RAM Banks");
+                ui.label(format!("{}", cart_header.ram_banks()));
+                ui.end_row();
+            });
+    }
 }
 
 impl eframe::App for GameboyApp {
@@ -647,6 +700,7 @@ impl eframe::App for GameboyApp {
         self.handle_input(ctx);
 
         self.send_message(EmulatorCommand::RunFrame);
+        self.send_message(EmulatorCommand::QueryDebug(self.open_panel));
 
         if let Some(comm_ctx) = self.comm_ctx.as_mut() {
             while let Ok(event) = comm_ctx.event_rc.try_recv() {
@@ -663,6 +717,9 @@ impl eframe::App for GameboyApp {
                     }
                     EmulatorEvent::CpuRegisters(cpu_registers) => {
                         self.cpu_debug = Some(cpu_registers)
+                    }
+                    EmulatorEvent::CartridgeInfo(cart_header) => {
+                        self.cart_header = Some(cart_header)
                     }
                 }
             }
@@ -702,6 +759,9 @@ enum EmulatorCommand {
     Pause,
     Stop,
 
+    // Debug
+    QueryDebug(Panel),
+
     // Joypad events
     KeyPressed(JoypadKeys),
     KeyReleased(JoypadKeys),
@@ -724,7 +784,11 @@ impl EmulationThread {
         ram: Option<Vec<u8>>,
         save_file_path: PathBuf,
     ) -> Self {
-        let gameboy = Gameboy::new(rom, ram);
+        let (gameboy, cart_header) = Gameboy::new(rom, ram);
+        comm_ctx
+            .event_tx
+            .send(EmulatorEvent::CartridgeInfo(cart_header))
+            .unwrap();
         Self {
             comm_ctx,
             gameboy,
@@ -752,6 +816,7 @@ impl EmulationThread {
                             .send(EmulatorEvent::CpuRegisters(data))
                             .unwrap();
                     }
+                    EmulatorCommand::QueryDebug(panel) => self.send_debug_for_panel(panel),
                     EmulatorCommand::RunFrame => {}
                     EmulatorCommand::Pause => self.paused = true,
                     EmulatorCommand::Stop => match self.gameboy.save(&self.save_file_path) {
@@ -771,5 +836,13 @@ impl EmulationThread {
                 Err(e) => log::error!("{}", e),
             }
         }
+    }
+
+    fn send_debug_for_panel(&mut self, panel: Panel) {
+        let debug = match panel {
+            Panel::Cpu => EmulatorEvent::CpuRegisters(self.gameboy.load_cpu_debug()),
+            _ => return,
+        };
+        self.comm_ctx.event_tx.send(debug).unwrap();
     }
 }

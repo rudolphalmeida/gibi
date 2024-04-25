@@ -4,7 +4,7 @@ use crate::SystemState;
 /// This trait defines all the memory-mapped components of the Game Boy
 /// The CPU can pass data to and from these components using the `Memory::read`
 /// and the `Memory::write` functions.
-pub(crate) trait Memory {
+pub trait Memory {
     /// Read the data (`Byte`) at `address` and return it. `address` can be
     /// mapped to something else. This function should take exactly
     /// `1` m-cycle or `4` t-cycles in the Game Boy clock timings

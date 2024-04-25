@@ -35,6 +35,7 @@ pub trait Mbc: Memory {
     fn save_ram(&self) -> Option<&Vec<u8>>;
 }
 
+#[derive(Clone, Debug)]
 pub struct CartridgeHeader {
     pub title: String,
     pub manufacturer_code: String,

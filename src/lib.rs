@@ -1,12 +1,13 @@
 #![allow(dead_code)] // Only for development
 
+use cartridge::CartridgeHeader;
 use ppu::{LCD_HEIGHT, LCD_WIDTH};
 
 use crate::debug::CpuDebug;
 use crate::textures::Texture;
 
 mod apu;
-mod cartridge;
+pub mod cartridge;
 pub mod cpu;
 pub mod debug;
 pub mod framebuffer;
@@ -29,10 +30,11 @@ pub enum EmulatorEvent {
 
     // UI debug data
     CpuRegisters(CpuDebug),
+    CartridgeInfo(CartridgeHeader),
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Default)]
-pub(crate) enum HardwareSupport {
+pub enum HardwareSupport {
     #[default]
     CgbOnly,
     DmgCgb,
