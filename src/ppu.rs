@@ -1,9 +1,9 @@
-use crate::{GameFrame, SystemState};
 use crate::framebuffer::access;
 use crate::interrupts::{InterruptHandler, InterruptType};
 use crate::memory::Memory;
 use crate::palettes::Palette;
 use crate::textures::RGBA;
+use crate::{GameFrame, SystemState};
 
 pub(crate) const VRAM_START: u16 = 0x8000;
 pub(crate) const VRAM_END: u16 = 0x9FFF;

@@ -469,7 +469,7 @@ impl GameboyApp {
         menu::bar(ui, |ui| {
             ui.menu_button("File", |ui| {
                 if ui.button("Open").clicked() {
-                    // TODO: Stop running emulation if clicking
+                    self.send_message(EmulatorCommand::Exit);
                     if let Some(path) = rfd::FileDialog::new().pick_file() {
                         match spawn(&path, ctx) {
                             Ok(comm_ctx) => self.comm_ctx = Some(comm_ctx),
@@ -481,7 +481,7 @@ impl GameboyApp {
                 ui.menu_button("Open Recent", |ui| {
                     for path in &self.recent_roms {
                         if (ui.button(path.file_name().unwrap().to_str().unwrap())).clicked() {
-                            // TODO: Stop running emulation if clicking
+                            self.send_message(EmulatorCommand::Exit);
                             match spawn(path, ctx) {
                                 Ok(comm_ctx) => self.comm_ctx = Some(comm_ctx),
                                 Err(err) => log::error!("Failed to load ROM fxxxxile: {:?}", err),
@@ -828,7 +828,10 @@ impl EmulationThread {
                     EmulatorCommand::KeyReleased(key) if !self.paused => self.gameboy.keyup(key),
                     EmulatorCommand::KeyReleased(_) => {}
                     EmulatorCommand::Exit => {
-                        // TODO: Save if a game is already running
+                        match self.gameboy.save(&self.save_file_path) {
+                            Ok(msg) => log::info!("{msg}"),
+                            Err(err) => log::error!("{err:?}"),
+                        }
                         log::info!("Received request to quit. Terminate emulation thread");
                         break;
                     }
