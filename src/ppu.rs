@@ -7,38 +7,13 @@ use crate::{GameFrame, SystemState};
 
 pub(crate) const VRAM_START: u16 = 0x8000;
 pub(crate) const VRAM_END: u16 = 0x9FFF;
-pub(crate) const VRAM_BANK_SIZE: usize = (VRAM_END - VRAM_START + 1) as usize;
-
 pub(crate) const OAM_START: u16 = 0xFE00;
 pub(crate) const OAM_END: u16 = 0xFE9F;
-pub(crate) const OAM_SIZE: usize = (OAM_END - OAM_START + 1) as usize;
-
-pub(crate) const PPU_REGISTERS_START: u16 = 0xFF40;
-pub(crate) const PPU_REGISTERS_END: u16 = 0xFF4B;
-
-pub(crate) const LCDC_ADDRESS: u16 = 0xFF40;
-pub(crate) const STAT_ADDRESS: u16 = 0xFF41;
-pub(crate) const SCY_ADDRESS: u16 = 0xFF42;
-pub(crate) const SCX_ADDRESS: u16 = 0xFF43;
-pub(crate) const LY_ADDRESS: u16 = 0xFF44;
-pub(crate) const LYC_ADDRESS: u16 = 0xFF45;
-pub(crate) const OAM_DMA_ADDRESS: u16 = 0xFF46;
-pub(crate) const BGP_ADDRESS: u16 = 0xFF47;
-pub(crate) const OBP0_ADDRESS: u16 = 0xFF48;
-pub(crate) const OBP1_ADDRESS: u16 = 0xFF49;
-pub(crate) const WY_ADDRESS: u16 = 0xFF4A;
-pub(crate) const WX_ADDRESS: u16 = 0xFF4B;
-pub(crate) const VRAM_BANK_ADDRESS: u16 = 0xFF4F;
-
 pub(crate) const PALETTE_START: u16 = 0xFF68;
 pub(crate) const PALETTE_END: u16 = 0xFF6B;
 
-pub(crate) const BCPS_ADDRESS: u16 = 0xFF68;
-pub(crate) const BCPD_ADDRESS: u16 = 0xFF69;
-pub(crate) const OCPS_ADDRESS: u16 = 0xFF6A;
-pub(crate) const OCPD_ADDRESS: u16 = 0xFF6B;
+pub(crate) const VRAM_BANK_ADDRESS: u16 = 0xFF4F;
 
-pub(crate) const DOTS_PER_TICK: u64 = 4;
 pub(crate) const OAM_DMA_CYCLES: u64 = 160;
 
 const BG_MAP_SIZE: usize = 256;
@@ -51,8 +26,6 @@ enum TilemapBase {
     Base1 = 0x9800,
     Base2 = 0x9C00,
 }
-
-const TILEMAP_AREA_SIZE: usize = TilemapBase::Base2 as usize - TilemapBase::Base1 as usize;
 
 enum TiledataAddressingMode {
     Signed = 0x8800,
@@ -86,10 +59,10 @@ struct RenderedBackgroundPixel {
 }
 
 pub(crate) struct Ppu {
-    vram: [u8; VRAM_BANK_SIZE * 2],
+    vram: [u8; (VRAM_END - VRAM_START + 1) as usize * 2],
     vram_bank: usize,
 
-    oam: [u8; OAM_SIZE],
+    oam: [u8; (OAM_END - OAM_START + 1) as usize],
 
     lcdc: Lcdc,
     stat: LcdStat,
@@ -124,9 +97,9 @@ impl Ppu {
         stat.set_mode(LcdStatus::OamSearch);
 
         Ppu {
-            vram: [0xFF; VRAM_BANK_SIZE * 2],
+            vram: [0xFF; (VRAM_END - VRAM_START + 1) as usize * 2],
             vram_bank: 0xFE, // Bank 0. All other bits are 1
-            oam: [0xFF; OAM_SIZE],
+            oam: [0xFF; (OAM_END - OAM_START + 1) as usize],
             lcdc: Default::default(),
             stat,
             dots_in_line: Default::default(),
@@ -152,7 +125,7 @@ impl Ppu {
     pub fn tick(&mut self, system_state: &mut SystemState, interrupts: &mut InterruptHandler) {
         // Tick 4 times if single speed mode and 2 times if double speed mode
         // The LCD controller speed does not change with the speed mode
-        let cycles_to_tick = DOTS_PER_TICK / system_state.speed_divider();
+        let cycles_to_tick = 4 / system_state.speed_divider();
         for _ in 0..cycles_to_tick {
             self.dots_in_line += 1;
 
@@ -644,22 +617,22 @@ impl Memory for Ppu {
             // TODO: VRAM/OAM disable access to CPU after timings are perfect
             VRAM_START..=VRAM_END => self.vram[vram_index(address, self.vram_bank & 0b1)],
             OAM_START..=OAM_END => self.oam[(address - OAM_START) as usize],
-            LCDC_ADDRESS => self.lcdc.0,
-            STAT_ADDRESS => self.stat.0,
-            SCY_ADDRESS => self.scy,
-            SCX_ADDRESS => self.scx,
-            LY_ADDRESS => self.ly,
-            LYC_ADDRESS => self.lyc,
-            BGP_ADDRESS => self.bgp,
-            OBP0_ADDRESS => self.obp0,
-            OBP1_ADDRESS => self.obp1,
-            WY_ADDRESS => self.wy,
-            WX_ADDRESS => self.wx,
-            VRAM_BANK_ADDRESS => self.vram_bank as u8,
-            BCPS_ADDRESS => self.bcps,
-            BCPD_ADDRESS => self.bcp_read(),
-            OCPS_ADDRESS => self.ocps,
-            OCPD_ADDRESS => self.ocp_read(),
+            0xFF40 => self.lcdc.0,
+            0xFF41 => self.stat.0,
+            0xFF42 => self.scy,
+            0xFF43 => self.scx,
+            0xFF44 => self.ly,
+            0xFF45 => self.lyc,
+            0xFF47 => self.bgp,
+            0xFF48 => self.obp0,
+            0xFF49 => self.obp1,
+            0xFF4A => self.wy,
+            0xFF4B => self.wx,
+            0xFF4F => self.vram_bank as u8,
+            0xFF68 => self.bcps,
+            0xFF69 => self.bcp_read(),
+            0xFF6A => self.ocps,
+            0xFF6B => self.ocp_read(),
             _ => 0xFF,
         }
     }
@@ -668,7 +641,7 @@ impl Memory for Ppu {
         match address {
             VRAM_START..=VRAM_END => self.vram[vram_index(address, self.vram_bank & 0b1)] = data,
             OAM_START..=OAM_END => self.oam[(address - OAM_START) as usize] = data,
-            LCDC_ADDRESS => {
+            0xFF40 => {
                 if ((self.lcdc.0 & 0x80) == 0x80) && ((data & 0x80) == 0x00) {
                     self.stat.set_mode(LcdStatus::Hblank);
                     self.ly = 0x00;
@@ -676,31 +649,31 @@ impl Memory for Ppu {
                 self.lcdc.0 = data;
             }
             // Ignore bit 7 as it is not used and don't set status or lyc=ly on write
-            STAT_ADDRESS => self.stat.0 = ((data & 0x78) | (self.stat.0 & 0x7)) & 0x7F,
-            SCY_ADDRESS => self.scy = data,
-            SCX_ADDRESS => self.scx = data,
-            LY_ADDRESS => {}
-            LYC_ADDRESS => {
+            0xFF41 => self.stat.0 = ((data & 0x78) | (self.stat.0 & 0x7)) & 0x7F,
+            0xFF42 => self.scy = data,
+            0xFF43 => self.scx = data,
+            0xFF44 => {}
+            0xFF45 => {
                 self.lyc = data;
                 self.stat.set_ly_lyc_state(self.ly == self.lyc);
             }
-            BGP_ADDRESS => self.bgp = data,
-            OBP0_ADDRESS => self.obp0 = data,
-            OBP1_ADDRESS => self.obp1 = data,
-            WY_ADDRESS => self.wy = data,
-            WX_ADDRESS => self.wx = data,
-            VRAM_BANK_ADDRESS => self.vram_bank = 0xFE | (data as usize & 0b1),
-            BCPS_ADDRESS => self.bcps = data & !(0x1 << 6), // Ignore bit 6
-            BCPD_ADDRESS => self.bcp_write(data),
-            OCPS_ADDRESS => self.ocps = data & !(0x1 << 6), // Ignore bit 6
-            OCPD_ADDRESS => self.ocp_write(data),
+            0xFF47 => self.bgp = data,
+            0xFF48 => self.obp0 = data,
+            0xFF49 => self.obp1 = data,
+            0xFF4A => self.wy = data,
+            0xFF4B => self.wx = data,
+            0xFF4F => self.vram_bank = 0xFE | (data as usize & 0b1),
+            0xFF68 => self.bcps = data & !(0x1 << 6), // Ignore bit 6
+            0xFF69 => self.bcp_write(data),
+            0xFF6A => self.ocps = data & !(0x1 << 6), // Ignore bit 6
+            0xFF6B => self.ocp_write(data),
             _ => {}
         }
     }
 }
 
 fn vram_index(address: u16, bank: usize) -> usize {
-    VRAM_BANK_SIZE * bank + (address - VRAM_START) as usize
+    (VRAM_END - VRAM_START + 1) as usize * bank + (address - VRAM_START) as usize
 }
 
 // OAM Sprites

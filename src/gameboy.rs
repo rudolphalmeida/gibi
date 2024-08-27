@@ -14,7 +14,7 @@ const CYCLES_PER_FRAME: u64 = 17556;
 
 pub struct Gameboy {
     mmu: Mmu,
-    cpu: Cpu,
+    cpu: Cpu<Mmu>,
 }
 
 impl Gameboy {

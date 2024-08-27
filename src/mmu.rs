@@ -1,47 +1,24 @@
-use crate::apu::{Apu, SOUND_END, SOUND_START, WAVE_END, WAVE_START};
-use crate::cartridge::CGB_BOOT_ROM;
-use crate::interrupts::{InterruptHandler, INTERRUPT_ENABLE_ADDRESS, INTERRUPT_FLAG_ADDRESS};
-use crate::ppu::{
-    OAM_DMA_ADDRESS, OAM_DMA_CYCLES, PALETTE_END, PALETTE_START, PPU_REGISTERS_END,
-    PPU_REGISTERS_START, VRAM_BANK_ADDRESS,
-};
-use crate::serial::{Serial, SERIAL_END, SERIAL_START};
-use crate::timer::{Timer, TIMER_END, TIMER_START};
-use crate::{ExecutionState, HardwareSupport, HdmaState, SystemState};
-
-use crate::joypad::JoypadKeys;
-use crate::memory::SystemBus;
 use crate::{
+    apu::{Apu, SOUND_END, SOUND_START, WAVE_END, WAVE_START},
     cartridge::{
         Cartridge, BOOT_ROM_END, BOOT_ROM_START, CART_RAM_END, CART_RAM_START, CART_ROM_END,
-        CART_ROM_START,
+        CART_ROM_START, CGB_BOOT_ROM,
     },
-    joypad::{Joypad, JOYP_ADDRESS},
-    memory::Memory,
-    ppu::{Ppu, OAM_END, OAM_START, VRAM_END, VRAM_START},
+    interrupts::{InterruptHandler, INTERRUPT_ENABLE_ADDRESS, INTERRUPT_FLAG_ADDRESS},
+    joypad::{Joypad, JoypadKeys, JOYP_ADDRESS},
+    memory::{Memory, SystemBus},
+    ppu::{
+        Ppu, OAM_DMA_CYCLES, OAM_END, OAM_START, PALETTE_END, PALETTE_START, VRAM_BANK_ADDRESS,
+        VRAM_END, VRAM_START,
+    },
+    serial::{Serial, SERIAL_END, SERIAL_START},
+    timer::{Timer, TIMER_END, TIMER_START},
+    ExecutionState, HardwareSupport, HdmaState, SystemState,
 };
-
-const CART_HEADER_START: u16 = 0x100;
-const CART_HEADER_END: u16 = 0x1FF;
 
 const WRAM_BANK_SIZE: usize = 1024 * 4; // 4KB
 const HRAM_SIZE: usize = 0xFFFE - 0xFF80 + 1;
 
-const WRAM_FIXED_START: u16 = 0xC000;
-const WRAM_FIXED_END: u16 = 0xCFFF;
-const WRAM_BANKED_START: u16 = 0xD000;
-const WRAM_BANKED_END: u16 = 0xDFFF;
-const WRAM_ECHO_START: u16 = 0xE000;
-const WRAM_ECHO_END: u16 = 0xFDFF;
-
-const UNUSED_START: u16 = 0xFEA0;
-const UNUSED_END: u16 = 0xFEFF;
-
-const KEY1: u16 = 0xFF4D;
-
-const BOOTROM_DISABLE: u16 = 0xFF50;
-
-const VRAM_DMA_START: u16 = 0xFF51;
 /// VRAM DMA Source High
 const HDMA1: u16 = 0xFF51;
 /// VRAM DMA Source Low
@@ -173,7 +150,7 @@ impl Mmu {
             } else {
                 self.wram_bank
             }
-            + (address - WRAM_BANKED_START) as usize;
+            + (address - 0xD000) as usize;
 
         self.wram[index]
     }
@@ -186,7 +163,7 @@ impl Mmu {
             } else {
                 self.wram_bank
             }
-            + (address - WRAM_BANKED_START) as usize;
+            + (address - 0xD000) as usize;
 
         self.wram[index] = data
     }
@@ -274,34 +251,30 @@ impl SystemBus for Mmu {
     /// components
     fn unticked_read(&mut self, address: u16) -> u8 {
         match address {
-            CART_HEADER_START..=CART_HEADER_END => return self.cart.read(address),
+            0x100..=0x1FF => return self.cart.read(address),
             BOOT_ROM_START..=BOOT_ROM_END if self.system_state.bootrom_mapped => {
                 return CGB_BOOT_ROM[address as usize]
             }
             CART_ROM_START..=CART_ROM_END => return self.cart.read(address),
             VRAM_START..=VRAM_END => return self.ppu.read(address),
             CART_RAM_START..=CART_RAM_END => return self.cart.read(address),
-            WRAM_FIXED_START..=WRAM_FIXED_END => {
-                return self.wram[(address - WRAM_FIXED_START) as usize]
-            }
+            0xC000..=0xCFFF => return self.wram[(address - 0xC000) as usize],
             // Switchable bank for WRAM
-            WRAM_BANKED_START..=WRAM_BANKED_END => return self.wram_banked_read(address),
-            WRAM_ECHO_START..=WRAM_ECHO_END => {
-                return self.unticked_read(address - WRAM_ECHO_START)
-            }
+            0xD000..=0xDFFF => return self.wram_banked_read(address),
+            0xE000..=0xFDFF => return self.unticked_read(address - 0xE000),
             OAM_START..=OAM_END => return self.ppu.read(address),
-            UNUSED_START..=UNUSED_END => {}
+            0xFEA0..=0xFEFF => {}
             JOYP_ADDRESS => return self.joypad.read(address),
             SERIAL_START..=SERIAL_END => return self.serial.read(address),
             TIMER_START..=TIMER_END => return self.timer.read(address),
             INTERRUPT_FLAG_ADDRESS => return self.interrupts.read(address),
             SOUND_START..=SOUND_END => return self.apu.read(address),
             WAVE_START..=WAVE_END => return self.apu.read(address),
-            OAM_DMA_ADDRESS => return 0xFF, // TODO: Check if this is correct
-            PPU_REGISTERS_START..=PPU_REGISTERS_END => return self.ppu.read(address),
+            0xFF46 => return 0xFF, // TODO: Check if this is correct
+            0xFF40..=0xFF4B => return self.ppu.read(address),
             VRAM_BANK_ADDRESS => return self.ppu.read(address),
-            KEY1 => return self.system_state.key1,
-            BOOTROM_DISABLE => return u8::from(self.system_state.bootrom_mapped),
+            0xFF4D => return self.system_state.key1,
+            0xFF50 => return u8::from(self.system_state.bootrom_mapped),
             HDMA1..=HDMA4 => return 0xFF,
             HDMA5 => return self.system_state.hdma_state.hdma_stat,
             PALETTE_START..=PALETTE_END => return self.ppu.read(address),
@@ -315,27 +288,25 @@ impl SystemBus for Mmu {
 
     fn unticked_write(&mut self, address: u16, data: u8) {
         match address {
-            CART_HEADER_START..=CART_HEADER_END => self.cart.write(address, data),
+            0x100..=0x1FF => self.cart.write(address, data),
             BOOT_ROM_START..=BOOT_ROM_END if self.system_state.bootrom_mapped => {
                 log::error!("Write to boot ROM {:#06X} with {:#04X}", address, data)
             }
             CART_ROM_START..=CART_ROM_END => self.cart.write(address, data),
             VRAM_START..=VRAM_END => self.ppu.write(address, data),
             CART_RAM_START..=CART_RAM_END => self.cart.write(address, data),
-            WRAM_FIXED_START..=WRAM_FIXED_END => {
-                self.wram[(address - WRAM_FIXED_START) as usize] = data
-            }
-            WRAM_BANKED_START..=WRAM_BANKED_END => self.wram_banked_write(address, data),
-            WRAM_ECHO_START..=WRAM_ECHO_END => self.unticked_write(address - WRAM_ECHO_START, data),
+            0xC000..=0xCFFF => self.wram[(address - 0xC000) as usize] = data,
+            0xD000..=0xDFFF => self.wram_banked_write(address, data),
+            0xE000..=0xFDFF => self.unticked_write(address - 0xE000, data),
             OAM_START..=OAM_END => self.ppu.write(address, data),
-            UNUSED_START..=UNUSED_END => {}
+            0xFEA0..=0xFEFF => {}
             JOYP_ADDRESS => self.joypad.write(address, data),
             SERIAL_START..=SERIAL_END => self.serial.write(address, data),
             TIMER_START..=TIMER_END => self.timer.write(address, data),
             INTERRUPT_FLAG_ADDRESS => self.interrupts.write(address, data),
             SOUND_START..=SOUND_END => self.apu.write(address, data),
             WAVE_START..=WAVE_END => self.apu.write(address, data),
-            OAM_DMA_ADDRESS => {
+            0xFF46 => {
                 let oam_dma = OamDma {
                     pending_cycles: OAM_DMA_CYCLES,
                     next_address: (data as u16) << 8,
@@ -343,13 +314,13 @@ impl SystemBus for Mmu {
 
                 self.oam_dma = Some(oam_dma);
             }
-            PPU_REGISTERS_START..=PPU_REGISTERS_END => self.ppu.write(address, data),
+            0xFF40..=0xFF4B => self.ppu.write(address, data),
             VRAM_BANK_ADDRESS => self.ppu.write(address, data),
-            KEY1 => {
+            0xFF4D => {
                 let key1 = (self.system_state.key1 & 0x80) | (data & 0x7F);
                 self.system_state.key1 = key1;
             }
-            BOOTROM_DISABLE => self.disable_bootrom(data),
+            0xFF50 => self.disable_bootrom(data),
             HDMA1 => self.system_state.hdma_state.write_src_high(data),
             HDMA2 => self.system_state.hdma_state.write_src_low(data),
             HDMA3 => self.system_state.hdma_state.write_dest_high(data),

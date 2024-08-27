@@ -1,19 +1,20 @@
 use crate::debug::{CpuDebug, ExecutedOpcode};
-use circular_buffer::CircularBuffer;
-use paste::paste;
-
 use crate::interrupts::{InterruptType, INTERRUPT_ENABLE_ADDRESS, INTERRUPT_FLAG_ADDRESS};
 use crate::memory::SystemBus;
 use crate::ExecutionState;
+use circular_buffer::CircularBuffer;
+use paste::paste;
+use std::marker::PhantomData;
 
-pub(crate) struct Cpu {
+pub(crate) struct Cpu<BusType: SystemBus> {
     regs: Registers,
     ime: bool,
     previous_execution_state: Option<ExecutionState>,
     opcodes: CircularBuffer<10, ExecutedOpcode>,
+    _bus: PhantomData<BusType>,
 }
 
-impl Cpu {
+impl<BusType: SystemBus> Cpu<BusType> {
     pub fn new() -> Self {
         let regs = Default::default();
         let ime = true;
@@ -25,6 +26,7 @@ impl Cpu {
             ime,
             previous_execution_state: None,
             opcodes,
+            _bus: Default::default(),
         }
     }
 
@@ -35,13 +37,13 @@ impl Cpu {
         }
     }
 
-    fn fetch<BusType: SystemBus>(&mut self, mmu: &mut BusType) -> u8 {
+    fn fetch(&mut self, mmu: &mut BusType) -> u8 {
         let byte = mmu.read(self.regs.pc);
         self.regs.pc = self.regs.pc.wrapping_add(1);
         byte
     }
 
-    pub fn execute<BusType: SystemBus>(&mut self, mmu: &mut BusType) {
+    pub fn execute(&mut self, mmu: &mut BusType) {
         if self.check_for_pending_interrupts(mmu) {
             self.handle_interrupts(mmu);
         }
@@ -55,7 +57,7 @@ impl Cpu {
         }
     }
 
-    fn check_for_pending_interrupts<BusType: SystemBus>(&self, mmu: &mut BusType) -> bool {
+    fn check_for_pending_interrupts(&self, mmu: &mut BusType) -> bool {
         let intf = mmu.unticked_read(INTERRUPT_FLAG_ADDRESS);
         let inte = mmu.unticked_read(INTERRUPT_ENABLE_ADDRESS);
 
@@ -64,7 +66,7 @@ impl Cpu {
     }
 
     /// CPU Interrupt Handler. Should take 5 m-cycles
-    fn handle_interrupts<BusType: SystemBus>(&mut self, mmu: &mut BusType) {
+    fn handle_interrupts(&mut self, mmu: &mut BusType) {
         // Cycle 1
         let intf = mmu.read(INTERRUPT_FLAG_ADDRESS);
         // Cycle 2
@@ -105,7 +107,7 @@ impl Cpu {
         mmu.tick(); // The PC set takes another m-cycle - Cycle 5
     }
 
-    fn execute_opcode<BusType: SystemBus>(&mut self, mmu: &mut BusType) {
+    fn execute_opcode(&mut self, mmu: &mut BusType) {
         let mut opcode = ExecutedOpcode {
             pc: self.regs.pc,
             ..ExecutedOpcode::default()
@@ -174,7 +176,7 @@ impl Cpu {
     }
 
     // Opcode Implementations
-    fn stop<BusType: SystemBus>(&mut self, mmu: &mut BusType) {
+    fn stop(&mut self, mmu: &mut BusType) {
         if mmu.system_state().key1 & 0b1 == 0b1 {
             // If a speed switch has been requested
             mmu.system_state().execution_state = ExecutionState::PreparingSpeedSwitch;
@@ -182,7 +184,7 @@ impl Cpu {
         self.fetch(mmu);
     }
 
-    fn ld_r16_u16<BusType: SystemBus>(&mut self, opcode: u8, mmu: &mut BusType) {
+    fn ld_r16_u16(&mut self, opcode: u8, mmu: &mut BusType) {
         let lower = self.fetch(mmu);
         let upper = self.fetch(mmu);
 
@@ -191,7 +193,7 @@ impl Cpu {
         WordRegister::for_group1(b54, self).set(value);
     }
 
-    fn alu_a_r8<BusType: SystemBus>(&mut self, opcode: u8, mmu: &mut BusType) {
+    fn alu_a_r8(&mut self, opcode: u8, mmu: &mut BusType) {
         let b543 = (opcode & 0x38) >> 3;
         let b321 = opcode & 0x07;
 
@@ -210,7 +212,7 @@ impl Cpu {
         };
     }
 
-    fn alu_a_u8<BusType: SystemBus>(&mut self, opcode: u8, mmu: &mut BusType) {
+    fn alu_a_u8(&mut self, opcode: u8, mmu: &mut BusType) {
         let b543 = (opcode & 0x38) >> 3;
         let operand = self.fetch(mmu);
 
@@ -313,7 +315,7 @@ impl Cpu {
         self.regs.f.carry = borrow;
     }
 
-    fn ld_r16_a<BusType: SystemBus>(&mut self, opcode: u8, mmu: &mut BusType) {
+    fn ld_r16_a(&mut self, opcode: u8, mmu: &mut BusType) {
         let b54 = (opcode & 0x30) >> 4;
         let address = WordRegister::for_group2(b54, self).get();
         mmu.write(address, self.regs.a);
@@ -326,7 +328,7 @@ impl Cpu {
         }
     }
 
-    fn ld_a_r16<BusType: SystemBus>(&mut self, opcode: u8, mmu: &mut BusType) {
+    fn ld_a_r16(&mut self, opcode: u8, mmu: &mut BusType) {
         let b54 = (opcode & 0x30) >> 4;
         let address = WordRegister::for_group2(b54, self).get();
         self.regs.a = mmu.read(address);
@@ -349,7 +351,7 @@ impl Cpu {
         }
     }
 
-    fn jr_cc_i8<BusType: SystemBus>(&mut self, opcode: u8, mmu: &mut BusType) {
+    fn jr_cc_i8(&mut self, opcode: u8, mmu: &mut BusType) {
         let b43 = (opcode & 0x18) >> 3;
         let offset = self.fetch(mmu) as i8 as i16 as u16;
 
@@ -359,19 +361,19 @@ impl Cpu {
         }
     }
 
-    fn jr_i8<BusType: SystemBus>(&mut self, _: u8, mmu: &mut BusType) {
+    fn jr_i8(&mut self, _: u8, mmu: &mut BusType) {
         let offset = self.fetch(mmu) as i8 as i16 as u16;
         self.regs.pc = self.regs.pc.wrapping_add(offset);
         mmu.tick();
     }
 
-    fn ld_r8_u8<BusType: SystemBus>(&mut self, opcode: u8, mmu: &mut BusType) {
+    fn ld_r8_u8(&mut self, opcode: u8, mmu: &mut BusType) {
         let b543 = (opcode & 0x38) >> 3;
         let operand = self.fetch(mmu);
         ByteRegister::for_r8(b543, self).set(operand, mmu);
     }
 
-    fn cb_prefixed_opcodes<BusType: SystemBus>(&mut self, _: u8, mmu: &mut BusType) {
+    fn cb_prefixed_opcodes(&mut self, _: u8, mmu: &mut BusType) {
         let prefixed_opcode = self.fetch(mmu);
 
         match prefixed_opcode {
@@ -382,7 +384,7 @@ impl Cpu {
         };
     }
 
-    fn bit_n_r8<BusType: SystemBus>(&mut self, opcode: u8, mmu: &mut BusType) {
+    fn bit_n_r8(&mut self, opcode: u8, mmu: &mut BusType) {
         let b543 = (opcode & 0x38) >> 3;
         let b321 = opcode & 0x07;
 
@@ -392,7 +394,7 @@ impl Cpu {
         self.regs.f.half_carry = true;
     }
 
-    fn res_n_r8<BusType: SystemBus>(&mut self, opcode: u8, mmu: &mut BusType) {
+    fn res_n_r8(&mut self, opcode: u8, mmu: &mut BusType) {
         let b543 = (opcode & 0x38) >> 3;
         let b321 = opcode & 0x07;
 
@@ -402,7 +404,7 @@ impl Cpu {
         ByteRegister::for_r8(b321, self).set(register, mmu);
     }
 
-    fn set_n_r8<BusType: SystemBus>(&mut self, opcode: u8, mmu: &mut BusType) {
+    fn set_n_r8(&mut self, opcode: u8, mmu: &mut BusType) {
         let b543 = (opcode & 0x38) >> 3;
         let b321 = opcode & 0x07;
 
@@ -412,7 +414,7 @@ impl Cpu {
         ByteRegister::for_r8(b321, self).set(register, mmu);
     }
 
-    fn inc_r8<BusType: SystemBus>(&mut self, opcode: u8, mmu: &mut BusType) {
+    fn inc_r8(&mut self, opcode: u8, mmu: &mut BusType) {
         let b543 = (opcode & 0x38) >> 3;
         let operand = ByteRegister::for_r8(b543, self).get(mmu);
 
@@ -424,7 +426,7 @@ impl Cpu {
         ByteRegister::for_r8(b543, self).set(result, mmu);
     }
 
-    fn dec_r8<BusType: SystemBus>(&mut self, opcode: u8, mmu: &mut BusType) {
+    fn dec_r8(&mut self, opcode: u8, mmu: &mut BusType) {
         let b543 = (opcode & 0x38) >> 3;
         let operand = ByteRegister::for_r8(b543, self).get(mmu);
 
@@ -436,12 +438,12 @@ impl Cpu {
         ByteRegister::for_r8(b543, self).set(result, mmu);
     }
 
-    fn halt<BusType: SystemBus>(&mut self, _: u8, mmu: &mut BusType) {
+    fn halt(&mut self, _: u8, mmu: &mut BusType) {
         self.previous_execution_state = Some(mmu.system_state().execution_state);
         mmu.system_state().execution_state = ExecutionState::Halted;
     }
 
-    fn ld_r8_r8<BusType: SystemBus>(&mut self, opcode: u8, mmu: &mut BusType) {
+    fn ld_r8_r8(&mut self, opcode: u8, mmu: &mut BusType) {
         let b543 = (opcode & 0x38) >> 3; // Destination
         let b210 = opcode & 0x07; // Source
 
@@ -449,25 +451,25 @@ impl Cpu {
         ByteRegister::for_r8(b543, self).set(source, mmu);
     }
 
-    fn ld_ff00_u8_a<BusType: SystemBus>(&mut self, _: u8, mmu: &mut BusType) {
+    fn ld_ff00_u8_a(&mut self, _: u8, mmu: &mut BusType) {
         let offset = u16::from(self.fetch(mmu));
         mmu.write(0xFF00 + offset, self.regs.a);
     }
 
-    fn ld_ff00_c_a<BusType: SystemBus>(&mut self, _: u8, mmu: &mut BusType) {
+    fn ld_ff00_c_a(&mut self, _: u8, mmu: &mut BusType) {
         mmu.write(0xFF00 + u16::from(self.regs.c), self.regs.a);
     }
 
-    fn ld_a_ff00_u8<BusType: SystemBus>(&mut self, _: u8, mmu: &mut BusType) {
+    fn ld_a_ff00_u8(&mut self, _: u8, mmu: &mut BusType) {
         let offset = u16::from(self.fetch(mmu));
         self.regs.a = mmu.read(0xFF00 + offset);
     }
 
-    fn ld_a_ff00_c<BusType: SystemBus>(&mut self, _: u8, mmu: &mut BusType) {
+    fn ld_a_ff00_c(&mut self, _: u8, mmu: &mut BusType) {
         self.regs.a = mmu.read(0xFF00 + self.regs.c as u16);
     }
 
-    fn call_u16<BusType: SystemBus>(&mut self, _: u8, mmu: &mut BusType) {
+    fn call_u16(&mut self, _: u8, mmu: &mut BusType) {
         let lsb = self.fetch(mmu);
         let msb = self.fetch(mmu);
         let jump_address = u16::from_be_bytes([msb, lsb]);
@@ -485,7 +487,7 @@ impl Cpu {
         self.regs.pc = jump_address;
     }
 
-    fn call_cc_u16<BusType: SystemBus>(&mut self, opcode: u8, mmu: &mut BusType) {
+    fn call_cc_u16(&mut self, opcode: u8, mmu: &mut BusType) {
         let b43 = (opcode & 0x18) >> 3;
 
         if self.check_condition(b43) {
@@ -497,7 +499,7 @@ impl Cpu {
         }
     }
 
-    fn push_r16<BusType: SystemBus>(&mut self, opcode: u8, mmu: &mut BusType) {
+    fn push_r16(&mut self, opcode: u8, mmu: &mut BusType) {
         let b54 = (opcode & 0x30) >> 4;
         let register_value = WordRegister::for_group3(b54, self).get();
         let [upper, lower] = register_value.to_be_bytes();
@@ -511,7 +513,7 @@ impl Cpu {
         mmu.write(self.regs.sp, lower);
     }
 
-    fn pop_r16<BusType: SystemBus>(&mut self, opcode: u8, mmu: &mut BusType) {
+    fn pop_r16(&mut self, opcode: u8, mmu: &mut BusType) {
         let b54 = (opcode & 0x30) >> 4;
 
         let lower = mmu.read(self.regs.sp);
@@ -522,7 +524,7 @@ impl Cpu {
         WordRegister::for_group3(b54, self).set(u16::from_be_bytes([upper, lower]));
     }
 
-    fn rotate_and_swap_r8<BusType: SystemBus>(&mut self, opcode: u8, mmu: &mut BusType) {
+    fn rotate_and_swap_r8(&mut self, opcode: u8, mmu: &mut BusType) {
         let b543 = (opcode & 0x38) >> 3;
         let b321 = opcode & 0x07;
 
@@ -733,7 +735,7 @@ impl Cpu {
         WordRegister::for_group1(b54, self).dec();
     }
 
-    fn ret<BusType: SystemBus>(&mut self, _: u8, mmu: &mut BusType) {
+    fn ret(&mut self, _: u8, mmu: &mut BusType) {
         let lower = mmu.read(self.regs.sp);
         self.regs.sp = self.regs.sp.wrapping_add(1);
 
@@ -745,12 +747,12 @@ impl Cpu {
         mmu.tick();
     }
 
-    fn reti<BusType: SystemBus>(&mut self, opcode: u8, mmu: &mut BusType) {
+    fn reti(&mut self, opcode: u8, mmu: &mut BusType) {
         self.ret(opcode, mmu);
         self.ime = true;
     }
 
-    fn ret_cc<BusType: SystemBus>(&mut self, opcode: u8, mmu: &mut BusType) {
+    fn ret_cc(&mut self, opcode: u8, mmu: &mut BusType) {
         let b43 = (opcode & 0x18) >> 3;
 
         mmu.tick(); // Internal branch decision
@@ -760,7 +762,7 @@ impl Cpu {
         }
     }
 
-    fn ld_u16_a<BusType: SystemBus>(&mut self, _: u8, mmu: &mut BusType) {
+    fn ld_u16_a(&mut self, _: u8, mmu: &mut BusType) {
         let lower = self.fetch(mmu);
         let upper = self.fetch(mmu);
 
@@ -768,7 +770,7 @@ impl Cpu {
         mmu.write(address, self.regs.a);
     }
 
-    fn ld_a_u16<BusType: SystemBus>(&mut self, _: u8, mmu: &mut BusType) {
+    fn ld_a_u16(&mut self, _: u8, mmu: &mut BusType) {
         let lower = self.fetch(mmu);
         let upper = self.fetch(mmu);
 
@@ -776,7 +778,7 @@ impl Cpu {
         self.regs.a = mmu.read(address);
     }
 
-    fn jp_u16<BusType: SystemBus>(&mut self, _: u8, mmu: &mut BusType) {
+    fn jp_u16(&mut self, _: u8, mmu: &mut BusType) {
         let lower = self.fetch(mmu);
         let upper = self.fetch(mmu);
 
@@ -784,7 +786,7 @@ impl Cpu {
         mmu.tick();
     }
 
-    fn jp_cc_u16<BusType: SystemBus>(&mut self, opcode: u8, mmu: &mut BusType) {
+    fn jp_cc_u16(&mut self, opcode: u8, mmu: &mut BusType) {
         let b43 = (opcode & 0x18) >> 3;
 
         if self.check_condition(b43) {
@@ -800,7 +802,7 @@ impl Cpu {
         self.ime = false;
     }
 
-    fn add_hl_r16<BusType: SystemBus>(&mut self, opcode: u8, mmu: &mut BusType) {
+    fn add_hl_r16(&mut self, opcode: u8, mmu: &mut BusType) {
         let b54 = (opcode & 0x30) >> 4;
         let operand = WordRegister::for_group1(b54, self).get();
 
@@ -817,7 +819,7 @@ impl Cpu {
         self.regs.pc = self.regs.get_hl();
     }
 
-    fn add_sp_i8<BusType: SystemBus>(&mut self, _: u8, mmu: &mut BusType) {
+    fn add_sp_i8(&mut self, _: u8, mmu: &mut BusType) {
         let operand = self.fetch(mmu) as i8 as i16 as u16;
         let result = self.regs.sp.wrapping_add(operand);
 
@@ -829,7 +831,7 @@ impl Cpu {
         self.regs.sp = result;
     }
 
-    fn ld_hl_sp_i8<BusType: SystemBus>(&mut self, _: u8, mmu: &mut BusType) {
+    fn ld_hl_sp_i8(&mut self, _: u8, mmu: &mut BusType) {
         let operand = self.fetch(mmu) as i8 as i16 as u16;
         let result = self.regs.sp.wrapping_add(operand);
 
@@ -841,12 +843,12 @@ impl Cpu {
         self.regs.set_hl(result);
     }
 
-    fn ld_sp_hl<BusType: SystemBus>(&mut self, _: u8, mmu: &mut BusType) {
+    fn ld_sp_hl(&mut self, _: u8, mmu: &mut BusType) {
         self.regs.sp = self.regs.get_hl();
         mmu.tick();
     }
 
-    fn ei<BusType: SystemBus>(&mut self, _: u8, mmu: &mut BusType) {
+    fn ei(&mut self, _: u8, mmu: &mut BusType) {
         // The effect of EI is delayed by one m-cycle
         // TODO: Check behaviour if EI is followed by a HALT
 
@@ -858,7 +860,7 @@ impl Cpu {
         self.ime = true;
     }
 
-    fn ld_u16_sp<BusType: SystemBus>(&mut self, _: u8, mmu: &mut BusType) {
+    fn ld_u16_sp(&mut self, _: u8, mmu: &mut BusType) {
         let lower = self.fetch(mmu);
         let upper = self.fetch(mmu);
         let address = u16::from_be_bytes([upper, lower]);
@@ -868,7 +870,7 @@ impl Cpu {
         mmu.write(address + 1, sp_upper);
     }
 
-    fn rst<BusType: SystemBus>(&mut self, opcode: u8, mmu: &mut BusType) {
+    fn rst(&mut self, opcode: u8, mmu: &mut BusType) {
         let target = (opcode & 0x38) as u16;
 
         // Pre-decrement SP
@@ -992,7 +994,7 @@ enum WordRegister<'a> {
 }
 
 impl<'a> WordRegister<'a> {
-    pub fn for_group1(bits: u8, cpu: &'a mut Cpu) -> Self {
+    pub fn for_group1<BusType: SystemBus>(bits: u8, cpu: &'a mut Cpu<BusType>) -> Self {
         match bits {
             0 => WordRegister::Pair {
                 upper: &mut cpu.regs.b,
@@ -1011,7 +1013,7 @@ impl<'a> WordRegister<'a> {
         }
     }
 
-    pub fn for_group2(bits: u8, cpu: &'a mut Cpu) -> Self {
+    pub fn for_group2<BusType: SystemBus>(bits: u8, cpu: &'a mut Cpu<BusType>) -> Self {
         match bits {
             0 => WordRegister::Pair {
                 upper: &mut cpu.regs.b,
@@ -1029,7 +1031,7 @@ impl<'a> WordRegister<'a> {
         }
     }
 
-    pub fn for_group3(bits: u8, cpu: &'a mut Cpu) -> Self {
+    pub fn for_group3<BusType: SystemBus>(bits: u8, cpu: &'a mut Cpu<BusType>) -> Self {
         match bits {
             0 => WordRegister::Pair {
                 upper: &mut cpu.regs.b,
@@ -1116,7 +1118,7 @@ enum ByteRegister<'a> {
 }
 
 impl<'a> ByteRegister<'a> {
-    pub fn for_r8(bits: u8, cpu: &'a mut Cpu) -> Self {
+    pub fn for_r8<BusType: SystemBus>(bits: u8, cpu: &'a mut Cpu<BusType>) -> Self {
         match bits {
             0 => ByteRegister::Register(&mut cpu.regs.b),
             1 => ByteRegister::Register(&mut cpu.regs.c),
