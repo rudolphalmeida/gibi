@@ -280,7 +280,6 @@ fn format_opcode(opcode: u8, arg1: u8, arg2: u8) -> String {
         253 => "ILLEGAL_FD ".to_string(),
         254 => format!("CP 0x{arg1:02X}"),
         255 => "RST 0x38".to_string(),
-        _ => "".to_string(),
     }
 }
 
@@ -366,6 +365,9 @@ pub struct GameboyApp {
     open_panel: Panel,
 
     #[serde(skip)]
+    paused: bool,
+
+    #[serde(skip)]
     cpu_debug: Option<CpuDebug>,
     #[serde(skip)]
     cart_header: Option<CartridgeHeader>,
@@ -381,16 +383,17 @@ impl GameboyApp {
 
         Self {
             game_scale_factor: 5.0,
+            paused: true,
             ..Self::default()
         }
     }
 
-    fn send_message(&self, msg: EmulatorCommand) {
+    fn send_command(&self, msg: EmulatorCommand) {
         if let Some(comm_ctx) = self.comm_ctx.as_ref() {
             comm_ctx
                 .command_tx
                 .send(msg)
-                .expect("Failed to send message to thread");
+                .unwrap_or_else(|_| log::error!("Failed to send message to thread"));
         }
     }
 
@@ -408,11 +411,11 @@ impl GameboyApp {
 
         for (key, joypad_key) in joypad_keymap {
             if ctx.input(|i| i.key_down(key)) {
-                self.send_message(EmulatorCommand::KeyPressed(joypad_key));
+                self.send_command(EmulatorCommand::KeyPressed(joypad_key));
             }
 
             if ctx.input(|i| i.key_released(key)) {
-                self.send_message(EmulatorCommand::KeyReleased(joypad_key));
+                self.send_command(EmulatorCommand::KeyReleased(joypad_key));
             }
         }
     }
@@ -426,6 +429,34 @@ impl GameboyApp {
             .min_width(400.0)
             .resizable(false)
             .show(ctx, |ui| {
+                if !self.comm_ctx.is_some() {
+                    ui.label(RichText::new("Select a ROM to play").size(20.0).strong());
+                    return;
+                }
+
+                ui.horizontal(|ui| {
+                    if ui.button(if self.paused { "▶" } else { "⏸" }).clicked() {
+                        self.paused = !self.paused;
+                    }
+                    if ui
+                        .add_enabled(self.paused, egui::Button::new("Step"))
+                        .clicked()
+                    {
+                        self.send_command(EmulatorCommand::RunUntil(RunUntil::SingleOpcode));
+                    }
+                    if ui
+                        .add_enabled(self.paused, egui::Button::new("Frame"))
+                        .clicked()
+                    {
+                        self.send_command(EmulatorCommand::RunUntil(RunUntil::FrameEnd));
+                    }
+                    if ui.button("⏹").clicked() {
+                        self.send_command(EmulatorCommand::Exit);
+                        self.paused = true;
+                    }
+                });
+                ui.separator();
+
                 egui::ScrollArea::vertical().show(ui, |ui| {
                     ui.horizontal(|ui| {
                         ui.selectable_value(&mut self.open_panel, Panel::Cpu, "CPU");
@@ -470,7 +501,8 @@ impl GameboyApp {
         menu::bar(ui, |ui| {
             ui.menu_button("File", |ui| {
                 if ui.button("Open").clicked() {
-                    self.send_message(EmulatorCommand::Exit);
+                    self.send_command(EmulatorCommand::Exit);
+                    self.paused = true;
                     if let Some(path) = rfd::FileDialog::new().pick_file() {
                         match spawn(&path, ctx) {
                             Ok(comm_ctx) => self.comm_ctx = Some(comm_ctx),
@@ -482,7 +514,8 @@ impl GameboyApp {
                 ui.menu_button("Open Recent", |ui| {
                     for path in &self.recent_roms {
                         if (ui.button(path.file_name().unwrap().to_str().unwrap())).clicked() {
-                            self.send_message(EmulatorCommand::Exit);
+                            self.send_command(EmulatorCommand::Exit);
+                            self.paused = true;
                             match spawn(path, ctx) {
                                 Ok(comm_ctx) => self.comm_ctx = Some(comm_ctx),
                                 Err(err) => log::error!("Failed to load ROM file: {:?}", err),
@@ -491,21 +524,11 @@ impl GameboyApp {
                     }
                 });
                 if ui.button("Exit").clicked() {
-                    self.send_message(EmulatorCommand::Exit);
+                    self.send_command(EmulatorCommand::Exit);
                 }
             });
 
-            ui.menu_button("Emulation", |ui| {
-                if ui.button("Start").clicked() {
-                    self.send_message(EmulatorCommand::Start);
-                }
-                if ui.button("Pause").clicked() {
-                    self.send_message(EmulatorCommand::Pause);
-                }
-                if ui.button("Stop").clicked() {
-                    self.send_message(EmulatorCommand::Stop);
-                }
-            });
+            // ui.menu_button("Emulation", |_| {});
 
             ui.menu_button("View", |ui| {
                 ui.menu_button("Scale", |ui| {
@@ -700,8 +723,10 @@ impl eframe::App for GameboyApp {
     fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
         self.handle_input(ctx);
 
-        self.send_message(EmulatorCommand::RunUntil(RunUntil::FrameEnd));
-        self.send_message(EmulatorCommand::QueryDebug(self.open_panel));
+        if !self.paused {
+            self.send_command(EmulatorCommand::RunUntil(RunUntil::FrameEnd));
+            self.send_command(EmulatorCommand::QueryDebug(self.open_panel));
+        }
 
         if let Some(comm_ctx) = self.comm_ctx.as_mut() {
             while let Ok(event) = comm_ctx.event_rc.try_recv() {
@@ -735,7 +760,7 @@ impl eframe::App for GameboyApp {
     }
 
     fn on_exit(&mut self, _gl: Option<&Context>) {
-        self.send_message(EmulatorCommand::Exit);
+        self.send_command(EmulatorCommand::Exit);
         if let Some(comm_ctx) = self.comm_ctx.as_mut() {
             comm_ctx
                 .emulation_thread
@@ -755,17 +780,13 @@ pub unsafe fn to_byte_slice<T>(data: &[T]) -> &[u8] {
 #[derive(Debug)]
 enum RunUntil {
     SingleOpcode,
-    PcHit(u16),
+    // PcHit(u16),
     FrameEnd,
 }
 
 #[derive(Debug)]
 enum EmulatorCommand {
-    // Emulation control
-    Start,
     RunUntil(RunUntil),
-    Pause,
-    Stop,
 
     // Debug
     QueryDebug(Panel),
@@ -781,7 +802,6 @@ enum EmulatorCommand {
 struct EmulationThread {
     gameboy: Gameboy,
     comm_ctx: UiCommCtx,
-    paused: bool,
     save_file_path: PathBuf,
 }
 
@@ -800,7 +820,6 @@ impl EmulationThread {
         Self {
             comm_ctx,
             gameboy,
-            paused: true,
             save_file_path,
         }
     }
@@ -809,35 +828,17 @@ impl EmulationThread {
         loop {
             match self.comm_ctx.command_rc.recv() {
                 Ok(m) => match m {
-                    EmulatorCommand::Start if self.paused => self.paused = false,
-                    EmulatorCommand::Start => {}
-                    EmulatorCommand::RunUntil(RunUntil::FrameEnd) if !self.paused => {
+                    EmulatorCommand::RunUntil(RunUntil::FrameEnd) => {
                         self.gameboy.run_one_frame();
                         self.gameboy.write_frame(&mut self.comm_ctx.frame_writer);
-                        self.comm_ctx
-                            .event_tx
-                            .send(EmulatorEvent::CompletedFrame)
-                            .unwrap();
-                        let data = self.gameboy.load_cpu_debug();
-                        self.comm_ctx
-                            .event_tx
-                            .send(EmulatorEvent::CpuRegisters(data))
-                            .unwrap();
+                        self.send_event(EmulatorEvent::CompletedFrame);
                     }
-                    EmulatorCommand::RunUntil(_) if !self.paused => {
+                    EmulatorCommand::RunUntil(_) => {
                         todo!("Emulator run until commands");
                     }
                     EmulatorCommand::QueryDebug(panel) => self.send_debug_for_panel(panel),
-                    EmulatorCommand::RunUntil(_) => {}
-                    EmulatorCommand::Pause => self.paused = true,
-                    EmulatorCommand::Stop => match self.gameboy.save(&self.save_file_path) {
-                        Ok(msg) => log::info!("{msg}"),
-                        Err(err) => log::error!("{err:?}"),
-                    },
-                    EmulatorCommand::KeyPressed(key) if !self.paused => self.gameboy.keydown(key),
-                    EmulatorCommand::KeyPressed(_) => {}
-                    EmulatorCommand::KeyReleased(key) if !self.paused => self.gameboy.keyup(key),
-                    EmulatorCommand::KeyReleased(_) => {}
+                    EmulatorCommand::KeyPressed(key) => self.gameboy.keydown(key),
+                    EmulatorCommand::KeyReleased(key) => self.gameboy.keyup(key),
                     EmulatorCommand::Exit => {
                         match self.gameboy.save(&self.save_file_path) {
                             Ok(msg) => log::info!("{msg}"),
@@ -852,11 +853,17 @@ impl EmulationThread {
         }
     }
 
+    fn send_event(&mut self, event: EmulatorEvent) {
+        self.comm_ctx.event_tx.send(event).unwrap_or_else(|_| {
+            log::error!("Failed to send emulator event");
+        });
+    }
+
     fn send_debug_for_panel(&mut self, panel: Panel) {
         let debug = match panel {
             Panel::Cpu => EmulatorEvent::CpuRegisters(self.gameboy.load_cpu_debug()),
             _ => return,
         };
-        self.comm_ctx.event_tx.send(debug).unwrap();
+        self.send_event(debug);
     }
 }
